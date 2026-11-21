@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,6 +13,8 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   <!-- NEW: Tesseract.js for reading waybill photos (OCR) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <!-- NEW: PDF.js for reading text & scanned PDF waybills -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 
   <style>
     body { font-family: 'Inter', sans-serif; }
@@ -51,7 +54,7 @@
           <h2 class="text-base font-semibold text-slate-900">1. Waybill Uploader</h2>
           <span id="ledger-count-badge" class="text-[11px] font-medium bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full">0 records</span>
         </div>
-        <p class="text-xs text-slate-500 mb-4">Supports .CSV, .XLSX, .XLS and waybill photos (.JPG, .PNG, .WEBP)</p>
+        <p class="text-xs text-slate-500 mb-4">Supports .CSV, .XLSX, .XLS, .PDF and waybill photos (.JPG, .PNG, .WEBP)</p>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div>
@@ -75,11 +78,11 @@
         </div>
 
         <div id="drop-zone" class="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-50/70 transition">
-          <input type="file" id="file-input" accept=".csv,.xlsx,.xls,image/*" multiple class="hidden" />
+          <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,application/pdf,image/*" multiple class="hidden" />
           <div class="w-12 h-12 mx-auto mb-3 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
           </div>
-          <p class="text-sm font-medium text-slate-700">Drag &amp; drop waybill photos or files here</p>
+          <p class="text-sm font-medium text-slate-700">Drag &amp; drop waybill PDFs, photos, or spreadsheets here</p>
           <p class="text-xs text-slate-400 mt-1">or click to browse (you can select several photos at once)</p>
         </div>
 
@@ -110,7 +113,7 @@
           <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 font-medium">Movement Type (Optional)</span>
           <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 font-medium">Shift (Optional)</span>
         </div>
-        <p class="mt-3 text-slate-500">Photos: the text is read automatically, then shown to you to check and correct before it is saved.</p>
+        <p class="mt-3 text-slate-500">PDFs &amp; Photos: text and items are extracted automatically, then shown in a review window to verify before saving.</p>
       </div>
     </section>
 
@@ -274,10 +277,10 @@
   <div id="ocr-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 no-print">
     <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto p-5 sm:p-6">
       <div class="flex items-start justify-between gap-3 mb-1">
-        <h3 class="text-base font-semibold text-slate-900">Review Waybill Photo <span id="ocr-counter" class="text-xs font-normal text-slate-500 ml-1"></span></h3>
+        <h3 class="text-base font-semibold text-slate-900">Review Extracted Waybill <span id="ocr-counter" class="text-xs font-normal text-slate-500 ml-1"></span></h3>
         <button onclick="closeOcrModal()" class="text-slate-400 hover:text-slate-700 text-lg leading-none px-2 cursor-pointer">✕</button>
       </div>
-      <p class="text-xs text-slate-500 mb-4">The text was read from your photo. Please check every field and correct any mistakes before importing.</p>
+      <p class="text-xs text-slate-500 mb-4">The text was extracted from your file. Please check every field and correct any mistakes before importing.</p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <img id="ocr-preview-img" alt="Waybill photo" class="w-full max-h-72 object-contain rounded-xl border border-slate-200 bg-slate-50" />
@@ -414,11 +417,20 @@
       fileInput.value = '';
     });
 
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    }
+
     function isImageFile(file) {
       return (file.type && file.type.startsWith('image/')) || /\.(jpe?g|png|webp|bmp|gif|heic|heif)$/i.test(file.name);
     }
 
-    // Router: images go to OCR, spreadsheets go to SheetJS
+    function isPdfFile(file) {
+      return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    }
+
+    // Router: PDFs, images, and spreadsheets
     function handleFileUpload(file) { handleFiles([file]); }
 
     // ---------- Photo (OCR) pipeline (tuned for Hisense "Warehouse to Showroom" waybills) ----------
@@ -472,15 +484,54 @@ function preprocessImage(img) {
   return canvas;
 }
 
-// Accepts one or many files at once
-function handleFiles(fileList) {
+// Reconstructs lines by Y-coordinate so multi-column PDF tables stay aligned across pages
+async function extractPdfPageLines(page) {
+  const textContent = await page.getTextContent();
+  const linesByY = new Map();
+
+  for (const item of textContent.items) {
+    if (!item.str || !item.str.trim()) continue;
+    const x = item.transform[4];
+    const y = Math.round(item.transform[5] / 4) * 4;
+    if (!linesByY.has(y)) linesByY.set(y, []);
+    linesByY.get(y).push({ x, str: item.str.trim() });
+  }
+
+  return Array.from(linesByY.entries())
+    .sort((a, b) => b[0] - a[0])
+    .map(([, items]) =>
+      items
+        .sort((a, b) => a.x - b.x)
+        .map(i => i.str)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+    .filter(Boolean);
+}
+
+async function renderPdfPageToCanvas(page) {
+  const viewport = page.getViewport({ scale: 2.0 });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return canvas;
+}
+
+// Unified review queue supporting both PDFs and photos sequentially
+async function handleFiles(fileList) {
   const files = Array.from(fileList);
-  const images = files.filter(isImageFile);
-  files.filter(f => !isImageFile(f)).forEach(handleSpreadsheetUpload);
-  if (!images.length) return;
+  const spreadsheets = files.filter(f => !isImageFile(f) && !isPdfFile(f));
+  const visualOrPdfFiles = files.filter(f => isImageFile(f) || isPdfFile(f));
+
+  spreadsheets.forEach(handleSpreadsheetUpload);
+  if (!visualOrPdfFiles.length) return;
+
   if (!ocrBusy) { ocrDone = 0; ocrTotal = 0; }
-  ocrQueue.push(...images);
-  ocrTotal += images.length;
+  ocrQueue.push(...visualOrPdfFiles);
+  ocrTotal += visualOrPdfFiles.length;
   if (!ocrBusy) processNextOcr();
 }
 
@@ -496,6 +547,47 @@ async function getOcrWorker() {
   return ocrWorker;
 }
 
+async function extractPdfWaybill(file) {
+  if (!window.pdfjsLib) {
+    throw new Error('The PDF reader library could not load. Check your internet connection and refresh the page.');
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const allLines = [];
+  let previewUrl = '';
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    setOcrStatus(`${ocrLabel}: reading page ${pageNum} of ${pdf.numPages}...`);
+    const page = await pdf.getPage(pageNum);
+    if (pageNum === 1) {
+      const firstCanvas = await renderPdfPageToCanvas(page);
+      previewUrl = firstCanvas.toDataURL('image/png');
+    }
+
+    const pageLines = await extractPdfPageLines(page);
+    const joined = pageLines.join('\n');
+
+    // Fall back to OCR if the PDF page is a scanned image with minimal embedded text
+    if (joined.replace(/\s+/g, '').length < 25) {
+      setOcrStatus(`${ocrLabel}: running OCR on scanned page ${pageNum} of ${pdf.numPages}...`);
+      const pageCanvas = await renderPdfPageToCanvas(page);
+      const worker = await getOcrWorker();
+      const { data } = await worker.recognize(pageCanvas);
+      if (data && data.text && data.text.trim()) {
+        allLines.push(...data.text.split(/\r?\n/).map(l => l.trim()).filter(Boolean));
+      }
+    } else {
+      allLines.push(...pageLines);
+    }
+  }
+
+  return {
+    text: allLines.join('\n').trim(),
+    previewUrl,
+    pageCount: pdf.numPages
+  };
+}
+
 async function processNextOcr() {
   if (!ocrQueue.length) {
     ocrBusy = false;
@@ -505,28 +597,41 @@ async function processNextOcr() {
   ocrBusy = true;
   const file = ocrQueue.shift();
   ocrDone++;
-  ocrLabel = `Photo ${ocrDone} of ${ocrTotal}`;
+  const isPdf = isPdfFile(file);
+  ocrLabel = `${isPdf ? 'PDF' : 'Photo'} ${ocrDone} of ${ocrTotal}`;
   document.getElementById('error-details-box').classList.add('hidden');
   try {
-    if (typeof Tesseract === 'undefined') throw new Error('The photo-reading library could not load. Check your internet connection and refresh the page.');
     setOcrStatus(`${ocrLabel}: opening "${file.name}"...`);
-    const { img, url } = await loadImageElement(file);
-    const canvas = preprocessImage(img);
-    const worker = await getOcrWorker();
-    const { data } = await worker.recognize(canvas);
-    const text = (data && data.text) || '';
+    let text = '';
+    let previewUrl = '';
+    let extraLabel = '';
+
+    if (isPdf) {
+      const pdfRes = await extractPdfWaybill(file);
+      text = pdfRes.text;
+      previewUrl = pdfRes.previewUrl;
+      if (pdfRes.pageCount > 1) extraLabel = ` • ${pdfRes.pageCount} pages`;
+    } else {
+      if (typeof Tesseract === 'undefined') throw new Error('The photo-reading library could not load. Check your internet connection and refresh the page.');
+      const { img, url } = await loadImageElement(file);
+      const canvas = preprocessImage(img);
+      const worker = await getOcrWorker();
+      const { data } = await worker.recognize(canvas);
+      text = (data && data.text) || '';
+      previewUrl = url;
+    }
+
     if (!text.trim()) {
-      showUploadAlert(`${ocrLabel}: no text could be read. Try a clearer, well-lit, straight-on photo.`, 'error');
-      URL.revokeObjectURL(url);
+      showUploadAlert(`${ocrLabel}: no text could be read from "${file.name}".`, 'error');
       return processNextOcr();
     }
     pendingOcrFileName = file.name;
-    document.getElementById('ocr-preview-img').src = url;
-    document.getElementById('ocr-counter').textContent = ocrTotal > 1 ? `(${ocrDone} of ${ocrTotal})` : '';
+    document.getElementById('ocr-preview-img').src = previewUrl;
+    document.getElementById('ocr-counter').textContent = (ocrTotal > 1 ? `(${ocrDone} of ${ocrTotal})` : '') + extraLabel;
     openOcrModal(parseWaybillText(text), text);
-    setOcrStatus(`${ocrLabel}: please review the details and click "Import Waybill".`, 'warning');
+    setOcrStatus(`${ocrLabel}: please review the extracted details and click "Import Waybill".`, 'warning');
   } catch (err) {
-    showUploadAlert(`${ocrLabel}: could not read photo (${err.message})`, 'error');
+    showUploadAlert(`${ocrLabel}: could not read file (${err.message})`, 'error');
     processNextOcr();
   }
 }
@@ -570,7 +675,7 @@ function parseWaybillText(text) {
   lines.forEach((l, i) => { if (/ITEM\s*NO|DESCRIPTION|QUANTITY|SHIPPED/i.test(l) && !/DATE\s*SHIPPED/i.test(l)) start = i; });
   if (start < 0) lines.forEach((l, i) => { if (/RECEIVING|SHOWROOM/i.test(l) && !/WAREHOUSE\s*TO/i.test(l)) start = i; });
 
-  const descLines = [];
+  const rawItemLines = [];
   const nums = [];
   for (let i = start + 1; i < lines.length; i++) {
     const l = lines[i];
@@ -580,12 +685,27 @@ function parseWaybillText(text) {
       else if (lines[i + 1] && /^\d+$/.test(lines[i + 1])) out.total = parseInt(lines[i + 1], 10);
       break;
     }
+    // Skip repeated table headers or footer date labels on multi-page PDFs
+    if (/^(QUANTITY|SHIPPED|ITEM\s*NO\.?|DESCRIPTION|DATE\s*OF\s*ORDER|DATE\s*SHIPPED)\b/i.test(l)) continue;
+    if (/^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}$/.test(l)) continue;
     if (/^\d{1,4}$/.test(l)) { nums.push(parseInt(l, 10)); continue; }
-    if (/[a-z]{4,}/.test(l) && /\s/.test(l)) descLines.push(l);
+    if (/[a-z]{4,}/i.test(l) && /\s/.test(l)) rawItemLines.push(l);
   }
+
+  // Merge wrapped continuation lines (e.g., "1680W - Amcon 6" or "hardfloor Gorenje 2") into the preceding product line
+  const codePrefixRe = /^(?:[0-9A-Z.\-]*\d[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*|[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*\d[0-9A-Z.\-]*|ACBRACKET|AMFS\d+Y?|AMFW\d+Y?|AMFKYS\d+[A-Z0-9]*|KEAMSB[0-9.L]+)\s+/i;
+  const descLines = [];
+  for (const l of rawItemLines) {
+    if (descLines.length > 0 && !codePrefixRe.test(l) && !/^(AC|BL|Blender|CF|CL|EC|FR|Fan|Kettle)\b/i.test(l)) {
+      descLines[descLines.length - 1] += ' ' + l;
+    } else {
+      descLines.push(l);
+    }
+  }
+
   if (out.total == null && nums.length === descLines.length + 1) out.total = nums.pop();
 
-  const codeRe = /^(?:[0-9A-Z.\-]*\d[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*|[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*\d[0-9A-Z.\-]*)\s+(?=\S+\s)/;
+  const codeRe = /^(?:[0-9A-Z.\-]*\d[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*|[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*\d[0-9A-Z.\-]*|ACBRACKET)\s+(?=\S+\s)/i;
   const items = descLines.map(l => {
     let t = l, qty = '';
     const q = t.match(/\s(\d{1,4})$/);

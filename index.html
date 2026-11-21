@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Waybill Logistics Report Generator</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- SheetJS for client-side CSV & Excel (.xlsx/.xls) parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js for interactive report visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- jsPDF & AutoTable for real downloadable PDF exports -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    @media print {
+      body { background: white !important; }
+      .no-print { display: none !important; }
+      #report-container { 
+        box-shadow: none !important; 
+        border: none !important; 
+        width: 100% !important; 
+        margin: 0 !important; 
+        padding: 0 !important; 
+      }
+    }
+    .drop-zone-active {
+      border-color: #2563eb !important;
+      background-color: #eff6ff !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Top Navigation Bar -->
+  <header class="bg-slate-900 text-white px-4 sm:px-6 py-4 shadow-md no-print">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-blue-600 p-2.5 rounded-xl font-bold text-base tracking-wider shadow-inner">WL</div>
+        <div>
+          <h1 class="text-base sm:text-lg font-semibold leading-tight">Waybill Logistics Report Generator</h1>
+          <p class="text-xs text-slate-400">Inbound &amp; Outbound Inventory Movement Portal</p>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="downloadSampleTemplate()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3.5 py-2.5 rounded-xl transition flex items-center gap-2 cursor-pointer">
+          <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+          <span>Download Sample CSV Waybill Template</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
+
+    <!-- LEFT PANEL: Waybill Upload & Validation (4 cols) -->
+    <section class="lg:col-span-4 space-y-6 no-print">
+      <div class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="text-base font-semibold text-slate-900">1. Waybill Sheet Uploader</h2>
+          <span id="ledger-count-badge" class="text-[11px] font-medium bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full">0 records</span>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">Supports .CSV, .XLSX, and .XLS files</p>
+
+        <!-- Default Batch Movement Type Fallback -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div>
+            <label for="default-direction" class="block text-xs font-medium text-slate-700 mb-1.5">Default Movement Direction</label>
+            <select id="default-direction" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="Outbound">Outbound (Dispatch)</option>
+              <option value="Inbound">Inbound (Receiving)</option>
+            </select>
+          </div>
+          <div>
+            <label for="default-shift" class="block text-xs font-medium text-slate-700 mb-1.5">Default Shift</label>
+            <select id="default-shift" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="DAY">DAY Shift</option>
+              <option value="NIGHT">NIGHT Shift</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Drag & Drop Area -->
+        <div id="drop-zone" class="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-50/70 transition">
+          <input type="file" id="file-input" accept=".csv, .xlsx, .xls" class="hidden" />
+          <div class="w-12 h-12 mx-auto mb-3 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+          </div>
+          <p class="text-sm font-medium text-slate-700">Drag &amp; drop waybill file here</p>
+          <p class="text-xs text-slate-400 mt-1">or click to browse from your computer</p>
+        </div>
+
+        <!-- Quick-Test Action Button -->
+        <div class="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
+          <button onclick="loadAdditionalSampleBatch()" class="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            <span>Load Sample Data (Simulate New Batch Upload)</span>
+          </button>
+        </div>
+
+        <!-- Upload Progress / Status Banner -->
+        <div id="upload-status" class="hidden mt-4 p-3.5 rounded-xl text-xs leading-relaxed"></div>
+
+        <!-- Error Details Accordion -->
+        <div id="error-details-box" class="hidden mt-3 border border-red-200 bg-red-50 rounded-xl p-3.5">
+          <p class="text-xs font-semibold text-red-800 mb-1.5">Validation Errors Flagged:</p>
+          <ul id="error-list" class="text-xs text-red-700 list-disc pl-4 space-y-1 max-h-40 overflow-y-auto"></ul>
+        </div>
+      </div>
+
+      <!-- Quick Schema Reference -->
+      <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 text-xs text-slate-600">
+        <h3 class="font-semibold text-slate-800 mb-2.5">Required Column Headers</h3>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Date</span>
+          <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Transfer Number</span>
+          <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Product Type</span>
+          <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Quantity</span>
+          <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Driver Name</span>
+          <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Truck Number</span>
+          <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 font-medium">Movement Type (Optional)</span>
+          <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 font-medium">Shift (Optional)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT PANEL: Filters, Charts & Report Table (8 cols) -->
+    <section class="lg:col-span-8 space-y-6">
+      
+      <!-- Filter Controls Card -->
+      <div class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 no-print">
+        <h2 class="text-base font-semibold text-slate-900 mb-4">2. Report Configuration</h2>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <!-- Report Period Type -->
+          <div>
+            <label for="report-type" class="block text-xs font-medium text-slate-700 mb-1.5">Report Frequency</label>
+            <select id="report-type" onchange="toggleDateInputs()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="daily">Daily Report</option>
+              <option value="weekly">Weekly Report</option>
+              <option value="monthly">Monthly Report</option>
+            </select>
+          </div>
+
+          <!-- Shift Filter -->
+          <div>
+            <label for="shift-filter" class="block text-xs font-medium text-slate-700 mb-1.5">Shift</label>
+            <select id="shift-filter" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="DAY">DAY Shift</option>
+              <option value="NIGHT">NIGHT Shift</option>
+              <option value="ALL">All Shifts (DAY &amp; NIGHT)</option>
+            </select>
+          </div>
+
+          <!-- Dynamic Single Date Selector -->
+          <div id="single-date-group">
+            <label for="target-date" class="block text-xs font-medium text-slate-700 mb-1.5">Select Date</label>
+            <input type="date" id="target-date" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+
+          <!-- Dynamic Date Range Selector -->
+          <div id="range-date-group" class="hidden sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="start-date" class="block text-xs font-medium text-slate-700 mb-1.5">Start Date</label>
+              <input type="date" id="start-date" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label for="end-date" class="block text-xs font-medium text-slate-700 mb-1.5">End Date</label>
+              <input type="date" id="end-date" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+
+          <!-- Product Filter -->
+          <div id="product-filter-group">
+            <label for="product-filter" class="block text-xs font-medium text-slate-700 mb-1.5">Product Filter</label>
+            <select id="product-filter" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="ALL">All Products</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Action Toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
+          <button onclick="fetchReportPreview()" id="btn-generate" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition shadow-sm cursor-pointer">
+            Generate Report Preview
+          </button>
+          
+          <div class="flex items-center gap-2.5">
+            <button onclick="window.print()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5">
+              <span>🖨 Print</span>
+            </button>
+            <button onclick="exportProductQuantitiesPdf()" id="btn-pdf" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition shadow-sm cursor-pointer flex items-center gap-1.5">
+              <span>📑 Export Product Quantities PDF</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Custom Notification Toast for PDF Export -->
+        <div id="export-toast" class="hidden mt-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between">
+          <span id="export-toast-msg"></span>
+          <button onclick="document.getElementById('export-toast').classList.add('hidden')" class="text-emerald-700 font-bold px-2">✕</button>
+        </div>
+      </div>
+
+      <!-- Printable Report Canvas -->
+      <div id="report-container" class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+        
+        <!-- Report Header -->
+        <div class="flex flex-col sm:flex-row justify-between items-start gap-2 border-b border-slate-200 pb-4 mb-6">
+          <div>
+            <span id="report-badge" class="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-100 px-3 py-1 rounded-lg">Daily Logistics Report</span>
+            <h2 id="report-title" class="text-xl font-bold text-slate-900 mt-2.5">Product Movement Summary</h2>
+            <p id="report-subtitle" class="text-xs text-slate-500 mt-0.5">Transaction Date: 2026-11-21</p>
+          </div>
+          <div class="sm:text-right text-xs text-slate-400">
+            <p>Generated on:</p>
+            <p id="generated-timestamp" class="font-medium text-slate-600">--</p>
+          </div>
+        </div>
+
+        <!-- KPI Summary Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+            <p class="text-xs font-medium text-slate-500">Total Inbound</p>
+            <p id="kpi-inbound" class="text-2xl font-bold text-emerald-600 mt-1">0</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+            <p class="text-xs font-medium text-slate-500">Total Outbound</p>
+            <p id="kpi-outbound" class="text-2xl font-bold text-blue-600 mt-1">0</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+            <p class="text-xs font-medium text-slate-500">Distinct Drivers</p>
+            <p id="kpi-drivers" class="text-2xl font-bold text-slate-800 mt-1">0</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+            <p class="text-xs font-medium text-slate-500">Distinct Trucks</p>
+            <p id="kpi-trucks" class="text-2xl font-bold text-slate-800 mt-1">0</p>
+          </div>
+        </div>
+
+        <!-- Chart.js Visualization -->
+        <div class="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Inbound vs. Outbound Volume by Product</h3>
+          <div class="relative h-64 w-full">
+            <canvas id="movementChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Detailed Aggregation Table -->
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 border-b border-slate-200 text-xs uppercase">
+                <th class="py-3.5 px-3.5 font-semibold">Product Type</th>
+                <th class="py-3.5 px-3.5 font-semibold text-right">Inbound</th>
+                <th class="py-3.5 px-3.5 font-semibold text-right">Outbound</th>
+                <th class="py-3.5 px-3.5 font-semibold text-right">Net</th>
+                <th id="col-details-header" class="py-3.5 px-3.5 font-semibold">Transfers &amp; Fleet (Driver [Truck])</th>
+              </tr>
+            </thead>
+            <tbody id="report-table-body" class="divide-y divide-slate-200 text-xs">
+              <tr>
+                <td colspan="5" class="py-8 text-center text-slate-400">Loading waybill records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- Dedicated Drivers & Trucks Roster Section -->
+      <div id="fleet-roster-container" class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4 mb-4">
+          <div>
+            <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-100 px-3 py-1 rounded-lg">Fleet Directory</span>
+            <h2 class="text-lg font-bold text-slate-900 mt-2">Drivers &amp; Trucks Roster</h2>
+            <p id="roster-scope-label" class="text-xs text-slate-500 mt-0.5">Filtered by active report period</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 no-print">
+            <label class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer">
+              <input type="checkbox" id="roster-use-period" checked onchange="fetchReportPreview()" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+              <span>Match Report Period</span>
+            </label>
+            <button onclick="downloadDriversAndTrucksPdf()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-medium px-4 py-2.5 rounded-xl transition shadow-sm cursor-pointer flex items-center gap-1.5">
+              <span>🚛 Download Drivers &amp; Trucks PDF</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 border-b border-slate-200 text-xs uppercase">
+                <th class="py-3 px-4 font-semibold">Driver's Name</th>
+                <th class="py-3 px-4 font-semibold">Truck Number</th>
+              </tr>
+            </thead>
+            <tbody id="fleet-roster-body" class="divide-y divide-slate-200 text-xs">
+              <tr>
+                <td colspan="2" class="py-6 text-center text-slate-400">No drivers or trucks found for this selection.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <script>
+    // In-memory Google Sheets Ledger Simulation (`Raw_Waybills`)
+    let waybillLedger = [
+      // Primary Daily Transactions for 2026-11-21 (DAY & NIGHT Shifts)
+      { date: '2026-11-21', shift: 'DAY', transferNumber: 'TR-11102026-001', movementType: 'Outbound', productType: 'Refrigerator 205L', quantity: 150, driverName: 'Kwame Mensah', truckNumber: 'GT-4421-24' },
+      { date: '2026-11-21', shift: 'DAY', transferNumber: 'TR-11102026-002', movementType: 'Outbound', productType: 'Refrigerator 205L', quantity: 20, driverName: 'Ama Osei', truckNumber: 'GT-4421-24' },
+      { date: '2026-11-21', shift: 'DAY', transferNumber: 'IN-11102026-001', movementType: 'Inbound', productType: 'Refrigerator 205L', quantity: 60, driverName: 'Yaw Boateng', truckNumber: 'AS-8812-23' },
+      { date: '2026-11-21', shift: 'DAY', transferNumber: 'IN-11102026-002', movementType: 'Inbound', productType: 'Split AC 1.5HP', quantity: 120, driverName: 'Yaw Boateng', truckNumber: 'AS-8812-23' },
+      { date: '2026-11-21', shift: 'NIGHT', transferNumber: 'TR-11102026-003', movementType: 'Outbound', productType: 'Split AC 1.5HP', quantity: 85, driverName: 'Kofi Appiah', truckNumber: 'WR-3019-22' },
+      { date: '2026-11-21', shift: 'DAY', transferNumber: 'IN-11102026-003', movementType: 'Inbound', productType: 'Chest Freezer 300L', quantity: 95, driverName: 'Kwame Mensah', truckNumber: 'GT-4421-24' },
+      { date: '2026-11-21', shift: 'NIGHT', transferNumber: 'TR-11102026-004', movementType: 'Outbound', productType: 'Chest Freezer 300L', quantity: 40, driverName: 'Ama Osei', truckNumber: 'GN-1190-24' },
+      { date: '2026-11-21', shift: 'NIGHT', transferNumber: 'TR-11102026-005', movementType: 'Outbound', productType: 'Smart TV 55"', quantity: 110, driverName: 'Kofi Appiah', truckNumber: 'WR-3019-22' },
+      { date: '2026-11-21', shift: 'DAY', transferNumber: 'IN-11102026-004', movementType: 'Inbound', productType: 'Smart TV 55"', quantity: 140, driverName: 'Yaw Boateng', truckNumber: 'AS-8812-23' },
+
+      // Earlier Weekly/Monthly Historical Transactions (2026-11-15 to 2026-11-19)
+      { date: '2026-11-19', shift: 'DAY', transferNumber: 'IN-19112026-001', movementType: 'Inbound', productType: 'Refrigerator 205L', quantity: 200, driverName: 'Samuel Tetteh', truckNumber: 'GE-7721-21' },
+      { date: '2026-11-18', shift: 'NIGHT', transferNumber: 'TR-18112026-001', movementType: 'Outbound', productType: 'Smart TV 55"', quantity: 75, driverName: 'Kwame Mensah', truckNumber: 'GT-4421-24' },
+      { date: '2026-11-16', shift: 'DAY', transferNumber: 'TR-16112026-001', movementType: 'Outbound', productType: 'Chest Freezer 300L', quantity: 65, driverName: 'Samuel Tetteh', truckNumber: 'GE-7721-21' },
+      { date: '2026-11-15', shift: 'NIGHT', transferNumber: 'IN-15112026-001', movementType: 'Inbound', productType: 'Split AC 1.5HP', quantity: 150, driverName: 'Ama Osei', truckNumber: 'GN-1190-24' }
+    ];
+
+    let chartInstance = null;
+    let sampleBatchCounter = 1;
+    let currentReportRows = [];
+    let currentRosterPairs = [];
+
+    // Initialize App on Load
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('target-date').value = '2026-11-21';
+      document.getElementById('start-date').value = '2026-11-15';
+      document.getElementById('end-date').value = '2026-11-21';
+
+      updateLedgerBadge();
+      refreshProductDropdown();
+      fetchReportPreview();
+    });
+
+    function updateLedgerBadge() {
+      document.getElementById('ledger-count-badge').textContent = `${waybillLedger.length} records stored`;
+    }
+
+    // Toggle Single Date vs Date Range Inputs
+    function toggleDateInputs() {
+      const type = document.getElementById('report-type').value;
+      const singleGroup = document.getElementById('single-date-group');
+      const rangeGroup = document.getElementById('range-date-group');
+      const productGroup = document.getElementById('product-filter-group');
+
+      if (type === 'daily') {
+        singleGroup.classList.remove('hidden');
+        rangeGroup.classList.add('hidden');
+        productGroup.classList.remove('lg:col-span-4');
+      } else {
+        singleGroup.classList.add('hidden');
+        rangeGroup.classList.remove('hidden');
+        productGroup.classList.add('lg:col-span-4');
+
+        if (type === 'weekly') {
+          document.getElementById('start-date').value = '2026-11-15';
+          document.getElementById('end-date').value = '2026-11-21';
+        } else if (type === 'monthly') {
+          document.getElementById('start-date').value = '2026-11-01';
+          document.getElementById('end-date').value = '2026-11-30';
+        }
+      }
+      fetchReportPreview();
+    }
+
+    // Drag-and-Drop Event Listeners
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drop-zone-active');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drop-zone-active'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drop-zone-active');
+      if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handleFileUpload(e.target.files[0]);
+      fileInput.value = '';
+    });
+
+    // Parse CSV/Excel via SheetJS and run validation pipeline
+    function handleFileUpload(file) {
+      const statusBox = document.getElementById('upload-status');
+      const errorBox = document.getElementById('error-details-box');
+      statusBox.className = 'mt-4 p-3.5 rounded-xl text-xs bg-blue-50 text-blue-800 border border-blue-200';
+      statusBox.textContent = `Parsing "${file.name}"...`;
+      statusBox.classList.remove('hidden');
+      errorBox.classList.add('hidden');
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rawJson = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+          if (!rawJson.length) {
+            showUploadAlert('The uploaded file is empty. Please add waybill rows and try again.', 'error');
+            return;
+          }
+
+          const defaultDirection = document.getElementById('default-direction').value;
+          const defaultShift = document.getElementById('default-shift').value;
+
+          const normalizedRows = rawJson.map(row => {
+            const keys = Object.keys(row);
+            const findVal = (patterns) => {
+              const match = keys.find(k => patterns.some(p => k.toLowerCase().replace(/[^a-z]/g, '').includes(p)));
+              return match ? row[match] : '';
+            };
+
+            let rawDate = findVal(['date', 'transactiondate']);
+            if (rawDate instanceof Date && !isNaN(rawDate)) {
+              rawDate = rawDate.toISOString().split('T')[0];
+            }
+
+            return {
+              date: String(rawDate || '').trim(),
+              shift: String(findVal(['shift']) || defaultShift).trim().toUpperCase(),
+              transferNumber: String(findVal(['transfer', 'waybill']) || '').trim().toUpperCase(),
+              productType: String(findVal(['product', 'item', 'sku']) || '').trim(),
+              quantity: findVal(['qty', 'quantity', 'units']),
+              driverName: String(findVal(['driver']) || '').trim(),
+              truckNumber: String(findVal(['truck', 'vehicle', 'plate']) || '').trim().toUpperCase(),
+              movementType: String(findVal(['movement', 'direction', 'type']) || defaultDirection).trim()
+            };
+          });
+
+          processAndValidateRows(normalizedRows, file.name);
+        } catch (err) {
+          showUploadAlert(`Failed to read file: ${err.message}`, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // Simulate uploading a new batch directly in the browser preview
+    function loadAdditionalSampleBatch() {
+      const batchId = String(sampleBatchCounter).padStart(2, '0');
+      const selectedShift = document.getElementById('default-shift').value;
+      const simulatedRows = [
+        { date: '2026-11-21', shift: selectedShift, transferNumber: `TR-21112026-B${batchId}1`, movementType: 'Outbound', productType: 'Refrigerator 205L', quantity: 35, driverName: 'Esi Mensah', truckNumber: 'GT-9910-25' },
+        { date: '2026-11-21', shift: selectedShift, transferNumber: `IN-21112026-B${batchId}2`, movementType: 'Inbound', productType: 'Washing Machine 8kg', quantity: 70, driverName: 'Esi Mensah', truckNumber: 'GT-9910-25' },
+        { date: '2026-11-21', shift: selectedShift, transferNumber: `TR-21112026-B${batchId}3`, movementType: 'Outbound', productType: 'Washing Machine 8kg', quantity: 25, driverName: 'Kwame Mensah', truckNumber: 'GT-4421-24' }
+      ];
+      sampleBatchCounter++;
+      processAndValidateRows(simulatedRows, `Sample_Dispatch_Batch_${batchId}.xlsx`);
+    }
+
+    // Validation & Ingestion Engine
+    function processAndValidateRows(rows, fileName) {
+      const existingKeys = new Set(waybillLedger.map(r => `${r.transferNumber}_${r.productType.toLowerCase()}`));
+      let importedCount = 0;
+      const errors = [];
+
+      rows.forEach((row, idx) => {
+        const rowNum = idx + 2;
+        const qty = Number(row.quantity);
+        const parsedDate = new Date(row.date);
+
+        if (!row.date || isNaN(parsedDate.getTime())) {
+          errors.push({ rowNum, reason: `Invalid or missing Date ("${row.date}")` });
+        } else if (!row.productType || !row.transferNumber || !row.driverName || !row.truckNumber) {
+          errors.push({ rowNum, reason: 'Missing required field(s): Product, Transfer #, Driver, or Truck' });
+        } else if (isNaN(qty) || qty <= 0) {
+          errors.push({ rowNum, reason: `Quantity must be a positive number (found "${row.quantity}")` });
+        } else if (existingKeys.has(`${row.transferNumber}_${row.productType.toLowerCase()}`)) {
+          errors.push({ rowNum, reason: `Duplicate Transfer + Product (${row.transferNumber} / ${row.productType})` });
+        } else {
+          const formattedDate = parsedDate.toISOString().split('T')[0];
+          const normalizedDir = row.movementType.toLowerCase() === 'inbound' ? 'Inbound' : 'Outbound';
+          const normalizedShift = (row.shift || 'DAY').toUpperCase() === 'NIGHT' ? 'NIGHT' : 'DAY';
+
+          waybillLedger.push({
+            date: formattedDate,
+            shift: normalizedShift,
+            transferNumber: row.transferNumber,
+            movementType: normalizedDir,
+            productType: row.productType,
+            quantity: qty,
+            driverName: row.driverName,
+            truckNumber: row.truckNumber
+          });
+
+          existingKeys.add(`${row.transferNumber}_${row.productType.toLowerCase()}`);
+          importedCount++;
+        }
+      });
+
+      if (errors.length === 0) {
+        showUploadAlert(`Successfully imported ${importedCount} waybill record(s) from "${fileName}".`, 'success');
+        document.getElementById('error-details-box').classList.add('hidden');
+      } else {
+        showUploadAlert(`Imported ${importedCount} valid row(s) from "${fileName}". Skipped ${errors.length} invalid row(s).`, 'warning');
+        renderValidationErrors(errors);
+      }
+
+      updateLedgerBadge();
+      refreshProductDropdown();
+      fetchReportPreview();
+    }
+
+    function showUploadAlert(msg, type) {
+      const box = document.getElementById('upload-status');
+      const styles = {
+        success: 'bg-emerald-50 text-emerald-800 border border-emerald-200',
+        warning: 'bg-amber-50 text-amber-800 border border-amber-200',
+        error: 'bg-red-50 text-red-800 border border-red-200'
+      };
+      box.className = `mt-4 p-3.5 rounded-xl text-xs font-medium ${styles[type]}`;
+      box.textContent = msg;
+      box.classList.remove('hidden');
+    }
+
+    function renderValidationErrors(errors) {
+      const box = document.getElementById('error-details-box');
+      const list = document.getElementById('error-list');
+      list.innerHTML = '';
+      errors.forEach(err => {
+        const li = document.createElement('li');
+        li.textContent = `Row ${err.rowNum}: ${err.reason}`;
+        list.appendChild(li);
+      });
+      box.classList.remove('hidden');
+    }
+
+    // Dynamically populate Product Filter from unique products in ledger
+    function refreshProductDropdown() {
+      const select = document.getElementById('product-filter');
+      const currentVal = select.value;
+      const uniqueProducts = Array.from(new Set(waybillLedger.map(r => r.productType))).sort();
+
+      select.innerHTML = '<option value="ALL">All Products</option>';
+      uniqueProducts.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        select.appendChild(opt);
+      });
+
+      if (uniqueProducts.includes(currentVal)) {
+        select.value = currentVal;
+      }
+    }
+
+    // Aggregate Ledger Data for Daily, Weekly, or Monthly Report
+    function fetchReportPreview() {
+      const reportType = document.getElementById('report-type').value;
+      const shiftFilter = document.getElementById('shift-filter').value;
+      const productFilter = document.getElementById('product-filter').value;
+      const targetDate = document.getElementById('target-date').value;
+      const startDate = document.getElementById('start-date').value;
+      const endDate = document.getElementById('end-date').value;
+      const matchPeriod = document.getElementById('roster-use-period').checked;
+
+      const filteredRecords = waybillLedger.filter(r => {
+        if (shiftFilter !== 'ALL' && (r.shift || 'DAY') !== shiftFilter) return false;
+        if (productFilter !== 'ALL' && r.productType !== productFilter) return false;
+        if (reportType === 'daily') {
+          return r.date === targetDate;
+        } else {
+          return r.date >= startDate && r.date <= endDate;
+        }
+      });
+
+      const rosterSourceRecords = matchPeriod
+        ? filteredRecords
+        : waybillLedger.filter(r => {
+            if (shiftFilter !== 'ALL' && (r.shift || 'DAY') !== shiftFilter) return false;
+            return productFilter === 'ALL' || r.productType === productFilter;
+          });
+
+      const summaryMap = {};
+      const distinctDrivers = new Set();
+      const distinctTrucks = new Set();
+
+      filteredRecords.forEach(r => {
+        distinctDrivers.add(r.driverName);
+        distinctTrucks.add(r.truckNumber);
+
+        if (!summaryMap[r.productType]) {
+          summaryMap[r.productType] = {
+            product: r.productType,
+            inbound: 0,
+            outbound: 0,
+            transfers: [],
+            fleet: new Set()
+          };
+        }
+
+        if (r.movementType === 'Inbound') {
+          summaryMap[r.productType].inbound += r.quantity;
+        } else {
+          summaryMap[r.productType].outbound += r.quantity;
+        }
+
+        summaryMap[r.productType].transfers.push(`${r.transferNumber} (${r.quantity})`);
+        summaryMap[r.productType].fleet.add(`${r.driverName} [${r.truckNumber}]`);
+      });
+
+      const rows = Object.values(summaryMap).map(item => ({
+        product: item.product,
+        inbound: item.inbound,
+        outbound: item.outbound,
+        net: item.inbound - item.outbound,
+        transfersStr: item.transfers.join(', '),
+        fleetStr: Array.from(item.fleet).join('; ')
+      }));
+
+      // Build strictly unique Driver's Name + Truck Number pairs
+      const pairMap = new Map();
+      rosterSourceRecords.forEach(r => {
+        const key = `${r.driverName.trim()}|||${r.truckNumber.trim()}`;
+        if (!pairMap.has(key)) {
+          pairMap.set(key, {
+            driverName: r.driverName.trim(),
+            truckNumber: r.truckNumber.trim()
+          });
+        }
+      });
+      const rosterPairs = Array.from(pairMap.values()).sort((a, b) =>
+        a.driverName.localeCompare(b.driverName) || a.truckNumber.localeCompare(b.truckNumber)
+      );
+
+      currentReportRows = rows;
+      currentRosterPairs = rosterPairs;
+
+      const shiftLabel = shiftFilter === 'ALL' ? 'All Shifts (DAY & NIGHT)' : `${shiftFilter} Shift`;
+      document.getElementById('roster-scope-label').textContent = matchPeriod
+        ? (reportType === 'daily' ? `Date: ${targetDate} | Shift: ${shiftLabel}` : `Period: ${startDate} to ${endDate} | Shift: ${shiftLabel}`)
+        : `All recorded dates in ledger | Shift: ${shiftLabel}`;
+
+      renderReportUI({
+        rows,
+        distinctDrivers: distinctDrivers.size,
+        distinctTrucks: distinctTrucks.size
+      }, reportType, shiftFilter, targetDate, startDate, endDate);
+
+      renderFleetRoster(rosterPairs);
+    }
+
+    // Render strictly Driver's Name and Truck Number in the roster table
+    function renderFleetRoster(pairs) {
+      const tbody = document.getElementById('fleet-roster-body');
+      tbody.innerHTML = '';
+
+      if (!pairs || pairs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" class="py-6 text-center text-slate-400">No drivers or trucks found for this selection.</td></tr>';
+        return;
+      }
+
+      pairs.forEach(pair => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50/80 transition';
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-medium text-slate-900">${pair.driverName}</td>
+          <td class="py-3 px-4 font-mono text-slate-700">${pair.truckNumber}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Render KPIs, Chart.js Bar Chart, and Aggregation Table
+    function renderReportUI(data, reportType, shiftFilter, targetDate, startDate, endDate) {
+      document.getElementById('generated-timestamp').textContent = new Date().toLocaleString();
+      
+      const badgeMap = {
+        daily: 'Daily Logistics Report',
+        weekly: 'Weekly Summary Report',
+        monthly: 'Monthly Summary Report'
+      };
+      const shiftText = shiftFilter === 'ALL' ? 'ALL SHIFTS (DAY & NIGHT)' : `${shiftFilter} SHIFT`;
+      document.getElementById('report-badge').textContent = `${badgeMap[reportType]} • ${shiftText}`;
+      document.getElementById('report-subtitle').textContent = reportType === 'daily' 
+        ? `Transaction Date: ${targetDate || 'Not selected'} | Shift: ${shiftText}` 
+        : `Reporting Period: ${startDate || '--'} to ${endDate || '--'} | Shift: ${shiftText}`;
+
+      let totalIn = 0;
+      let totalOut = 0;
+      const tbody = document.getElementById('report-table-body');
+      tbody.innerHTML = '';
+
+      if (!data.rows || data.rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-400">No transactions found for the selected date range and product filter.</td></tr>';
+      } else {
+        data.rows.forEach(r => {
+          totalIn += r.inbound;
+          totalOut += r.outbound;
+          const netClass = r.net >= 0 ? 'text-emerald-600' : 'text-amber-600';
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-50/80 transition';
+          tr.innerHTML = `
+            <td class="py-3.5 px-3.5 font-semibold text-slate-900 align-top">${r.product}</td>
+            <td class="py-3.5 px-3.5 text-right text-emerald-700 font-medium align-top">${r.inbound.toLocaleString()}</td>
+            <td class="py-3.5 px-3.5 text-right text-blue-700 font-medium align-top">${r.outbound.toLocaleString()}</td>
+            <td class="py-3.5 px-3.5 text-right font-semibold ${netClass} align-top">${r.net > 0 ? '+' : ''}${r.net.toLocaleString()}</td>
+            <td class="py-3.5 px-3.5 text-slate-600 align-top">
+              <div class="font-medium text-slate-700">${r.transfersStr}</div>
+              <div class="text-[11px] text-slate-500 mt-0.5">Fleet: ${r.fleetStr}</div>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      document.getElementById('kpi-inbound').textContent = totalIn.toLocaleString();
+      document.getElementById('kpi-outbound').textContent = totalOut.toLocaleString();
+      document.getElementById('kpi-drivers').textContent = data.distinctDrivers || 0;
+      document.getElementById('kpi-trucks').textContent = data.distinctTrucks || 0;
+
+      updateChart(data.rows || []);
+    }
+
+    // Render or refresh the Chart.js bar chart
+    function updateChart(rows) {
+      const canvas = document.getElementById('movementChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: rows.map(r => r.product),
+          datasets: [
+            {
+              label: 'Inbound Qty',
+              data: rows.map(r => r.inbound),
+              backgroundColor: '#10b981',
+              borderRadius: 6
+            },
+            {
+              label: 'Outbound Qty',
+              data: rows.map(r => r.outbound),
+              backgroundColor: '#2563eb',
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                font: { family: 'Inter', size: 12 }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              grid: { color: '#e2e8f0' }
+            },
+            x: {
+              grid: { display: false }
+            }
+          }
+        }
+      });
+    }
+
+    // Export PDF containing strictly Product Type, Inbound Quantity, and Outbound Quantity
+    function exportProductQuantitiesPdf() {
+      const reportType = document.getElementById('report-type').value;
+      const shiftFilter = document.getElementById('shift-filter').value;
+      const targetDate = document.getElementById('target-date').value;
+      const startDate = document.getElementById('start-date').value;
+      const endDate = document.getElementById('end-date').value;
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+
+      const shiftLabel = shiftFilter === 'ALL' ? 'ALL SHIFTS (DAY & NIGHT)' : `${shiftFilter} SHIFT`;
+      const scopeText = reportType === 'daily' ? `Date: ${targetDate}` : `Period: ${startDate} to ${endDate}`;
+      doc.setFontSize(15);
+      doc.text('Product Quantities Report', 40, 45);
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`${reportType.toUpperCase()} | Shift: ${shiftLabel} (${scopeText})`, 40, 62);
+
+      const tableRows = currentReportRows.map(r => [
+        r.product,
+        r.inbound.toLocaleString(),
+        r.outbound.toLocaleString()
+      ]);
+
+      doc.autoTable({
+        startY: 78,
+        head: [['Product Type', 'Inbound Quantity', 'Outbound Quantity']],
+        body: tableRows.length ? tableRows : [['No records', '0', '0']],
+        styles: { fontSize: 10, cellPadding: 8 },
+        headStyles: { fillColor: [15, 23, 42] },
+        columnStyles: {
+          1: { halign: 'right' },
+          2: { halign: 'right' }
+        }
+      });
+
+      const fileName = `Product_Quantities_${shiftFilter}_${reportType}_${reportType === 'daily' ? targetDate : `${startDate}_to_${endDate}`}.pdf`;
+      doc.save(fileName);
+      showExportToast(`Downloaded "${fileName}" (${shiftLabel}) with Product Type, Inbound Quantity, and Outbound Quantity.`);
+    }
+
+    // Export PDF containing strictly Driver's Name and Truck Number
+    function downloadDriversAndTrucksPdf() {
+      const matchPeriod = document.getElementById('roster-use-period').checked;
+      const reportType = document.getElementById('report-type').value;
+      const shiftFilter = document.getElementById('shift-filter').value;
+      const targetDate = document.getElementById('target-date').value;
+      const startDate = document.getElementById('start-date').value;
+      const endDate = document.getElementById('end-date').value;
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+
+      const shiftLabel = shiftFilter === 'ALL' ? 'ALL SHIFTS (DAY & NIGHT)' : `${shiftFilter} SHIFT`;
+      const scopeLabel = matchPeriod
+        ? (reportType === 'daily' ? `Date: ${targetDate} | Shift: ${shiftLabel}` : `Period: ${startDate} to ${endDate} | Shift: ${shiftLabel}`)
+        : `All Recorded Dates | Shift: ${shiftLabel}`;
+
+      doc.setFontSize(15);
+      doc.text("Drivers & Trucks Roster", 40, 45);
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(scopeLabel, 40, 62);
+
+      const rosterRows = currentRosterPairs.map(p => [p.driverName, p.truckNumber]);
+
+      doc.autoTable({
+        startY: 78,
+        head: [["Driver's Name", 'Truck Number']],
+        body: rosterRows.length ? rosterRows : [['No drivers found', '-']],
+        styles: { fontSize: 10, cellPadding: 8 },
+        headStyles: { fillColor: [79, 70, 229] }
+      });
+
+      const fileName = `Drivers_and_Trucks_${shiftFilter}_${matchPeriod ? targetDate || startDate : 'All'}.pdf`;
+      doc.save(fileName);
+      showExportToast(`Downloaded "${fileName}" (${shiftLabel}) with Driver's Name and Truck Number.`);
+    }
+
+    function showExportToast(message) {
+      const toast = document.getElementById('export-toast');
+      const msg = document.getElementById('export-toast-msg');
+      msg.textContent = message;
+      toast.classList.remove('hidden');
+    }
+
+    // Generate & download a sample CSV template for dispatchers
+    function downloadSampleTemplate() {
+      const csvContent = [
+        'Date,Shift,Transfer Number,Movement Type,Product Type,Quantity,Driver Name,Truck Number',
+        '2026-11-21,DAY,TR-21112026-101,Outbound,Refrigerator 205L,45,Kwame Mensah,GT-4421-24',
+        '2026-11-21,NIGHT,IN-21112026-102,Inbound,Split AC 1.5HP,80,Yaw Boateng,AS-8812-23',
+        '2026-11-21,DAY,TR-21112026-103,Outbound,Microwave 25L,60,Ama Osei,GN-1190-24'
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'Waybill_Upload_Template.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>

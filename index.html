@@ -4,43 +4,27 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Waybill Logistics Report Generator</title>
-  
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Fonts: Inter -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <!-- SheetJS for client-side CSV & Excel (.xlsx/.xls) parsing -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <!-- Chart.js for interactive report visualizations -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <!-- jsPDF & AutoTable for real downloadable PDF exports -->
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <!-- NEW: Tesseract.js for reading waybill photos (OCR) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 
   <style>
-    body {
-      font-family: 'Inter', sans-serif;
-    }
+    body { font-family: 'Inter', sans-serif; }
     @media print {
       body { background: white !important; }
       .no-print { display: none !important; }
-      #report-container { 
-        box-shadow: none !important; 
-        border: none !important; 
-        width: 100% !important; 
-        margin: 0 !important; 
-        padding: 0 !important; 
-      }
+      #report-container { box-shadow: none !important; border: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
     }
-    .drop-zone-active {
-      border-color: #2563eb !important;
-      background-color: #eff6ff !important;
-    }
+    .drop-zone-active { border-color: #2563eb !important; background-color: #eff6ff !important; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
 
-  <!-- Top Navigation Bar -->
   <header class="bg-slate-900 text-white px-4 sm:px-6 py-4 shadow-md no-print">
     <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
       <div class="flex items-center gap-3">
@@ -59,19 +43,16 @@
     </div>
   </header>
 
-  <!-- Main Workspace -->
   <main class="max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
 
-    <!-- LEFT PANEL: Waybill Upload & Validation (4 cols) -->
     <section class="lg:col-span-4 space-y-6 no-print">
       <div class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="text-base font-semibold text-slate-900">1. Waybill Sheet Uploader</h2>
+          <h2 class="text-base font-semibold text-slate-900">1. Waybill Uploader</h2>
           <span id="ledger-count-badge" class="text-[11px] font-medium bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full">0 records</span>
         </div>
-        <p class="text-xs text-slate-500 mb-4">Supports .CSV, .XLSX, and .XLS files</p>
+        <p class="text-xs text-slate-500 mb-4">Supports .CSV, .XLSX, .XLS and waybill photos (.JPG, .PNG, .WEBP)</p>
 
-        <!-- Default Batch Movement Type, Shift & Date Fallback -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div>
             <label for="default-direction" class="block text-xs font-medium text-slate-700 mb-1.5">Default Movement Direction</label>
@@ -88,22 +69,20 @@
             </select>
           </div>
           <div class="sm:col-span-2">
-            <label for="default-upload-date" class="block text-xs font-medium text-slate-700 mb-1.5">Default Date (used if sheet has no Date column)</label>
+            <label for="default-upload-date" class="block text-xs font-medium text-slate-700 mb-1.5">Default Date (used if sheet/photo has no date)</label>
             <input type="date" id="default-upload-date" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
 
-        <!-- Drag & Drop Area -->
         <div id="drop-zone" class="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-50/70 transition">
-          <input type="file" id="file-input" accept=".csv, .xlsx, .xls" class="hidden" />
+          <input type="file" id="file-input" accept=".csv,.xlsx,.xls,image/*" multiple class="hidden" />
           <div class="w-12 h-12 mx-auto mb-3 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
           </div>
-          <p class="text-sm font-medium text-slate-700">Drag &amp; drop waybill file here</p>
-          <p class="text-xs text-slate-400 mt-1">or click to browse from your computer</p>
+          <p class="text-sm font-medium text-slate-700">Drag &amp; drop waybill photos or files here</p>
+          <p class="text-xs text-slate-400 mt-1">or click to browse (you can select several photos at once)</p>
         </div>
 
-        <!-- Quick-Test Action Button -->
         <div class="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
           <button onclick="loadAdditionalSampleBatch()" class="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
@@ -111,19 +90,16 @@
           </button>
         </div>
 
-        <!-- Upload Progress / Status Banner -->
         <div id="upload-status" class="hidden mt-4 p-3.5 rounded-xl text-xs leading-relaxed"></div>
 
-        <!-- Error Details Accordion -->
         <div id="error-details-box" class="hidden mt-3 border border-red-200 bg-red-50 rounded-xl p-3.5">
           <p class="text-xs font-semibold text-red-800 mb-1.5">Validation Errors Flagged:</p>
           <ul id="error-list" class="text-xs text-red-700 list-disc pl-4 space-y-1 max-h-40 overflow-y-auto"></ul>
         </div>
       </div>
 
-      <!-- Quick Schema Reference -->
       <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 text-xs text-slate-600">
-        <h3 class="font-semibold text-slate-800 mb-2.5">Required Column Headers</h3>
+        <h3 class="font-semibold text-slate-800 mb-2.5">Required Column Headers (CSV/Excel)</h3>
         <div class="flex flex-wrap gap-1.5">
           <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Date</span>
           <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium">Transfer Number</span>
@@ -134,18 +110,16 @@
           <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 font-medium">Movement Type (Optional)</span>
           <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 font-medium">Shift (Optional)</span>
         </div>
+        <p class="mt-3 text-slate-500">Photos: the text is read automatically, then shown to you to check and correct before it is saved.</p>
       </div>
     </section>
 
-    <!-- RIGHT PANEL: Filters, Charts & Report Table (8 cols) -->
     <section class="lg:col-span-8 space-y-6">
-      
-      <!-- Filter Controls Card -->
+
       <div class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 no-print">
         <h2 class="text-base font-semibold text-slate-900 mb-4">2. Report Configuration</h2>
-        
+
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-          <!-- Report Period Type -->
           <div>
             <label for="report-type" class="block text-xs font-medium text-slate-700 mb-1.5">Report Frequency</label>
             <select id="report-type" onchange="toggleDateInputs()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -154,8 +128,6 @@
               <option value="monthly">Monthly Report</option>
             </select>
           </div>
-
-          <!-- Shift Filter -->
           <div>
             <label for="shift-filter" class="block text-xs font-medium text-slate-700 mb-1.5">Shift</label>
             <select id="shift-filter" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -164,14 +136,10 @@
               <option value="ALL">All Shifts (DAY &amp; NIGHT)</option>
             </select>
           </div>
-
-          <!-- Dynamic Single Date Selector -->
           <div id="single-date-group">
             <label for="target-date" class="block text-xs font-medium text-slate-700 mb-1.5">Select Date</label>
             <input type="date" id="target-date" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-
-          <!-- Dynamic Date Range Selector -->
           <div id="range-date-group" class="hidden sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label for="start-date" class="block text-xs font-medium text-slate-700 mb-1.5">Start Date</label>
@@ -182,8 +150,6 @@
               <input type="date" id="end-date" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
-
-          <!-- Product Filter -->
           <div id="product-filter-group">
             <label for="product-filter" class="block text-xs font-medium text-slate-700 mb-1.5">Product Filter</label>
             <select id="product-filter" onchange="fetchReportPreview()" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -192,12 +158,10 @@
           </div>
         </div>
 
-        <!-- Action Toolbar -->
         <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
           <button onclick="fetchReportPreview()" id="btn-generate" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition shadow-sm cursor-pointer">
             Generate Report Preview
           </button>
-          
           <div class="flex items-center gap-2.5">
             <button onclick="window.print()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5">
               <span>🖨 Print</span>
@@ -208,17 +172,13 @@
           </div>
         </div>
 
-        <!-- Custom Notification Toast for PDF Export -->
         <div id="export-toast" class="hidden mt-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between">
           <span id="export-toast-msg"></span>
           <button onclick="document.getElementById('export-toast').classList.add('hidden')" class="text-emerald-700 font-bold px-2">✕</button>
         </div>
       </div>
 
-      <!-- Printable Report Canvas -->
       <div id="report-container" class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
-        
-        <!-- Report Header -->
         <div class="flex flex-col sm:flex-row justify-between items-start gap-2 border-b border-slate-200 pb-4 mb-6">
           <div>
             <span id="report-badge" class="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-100 px-3 py-1 rounded-lg">Daily Logistics Report</span>
@@ -231,7 +191,6 @@
           </div>
         </div>
 
-        <!-- KPI Summary Cards -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
           <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
             <p class="text-xs font-medium text-slate-500">Total Inbound</p>
@@ -251,7 +210,6 @@
           </div>
         </div>
 
-        <!-- Chart.js Visualization -->
         <div class="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200/80">
           <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Inbound vs. Outbound Volume by Product</h3>
           <div class="relative h-64 w-full">
@@ -259,7 +217,6 @@
           </div>
         </div>
 
-        <!-- Detailed Aggregation Table -->
         <div class="overflow-x-auto rounded-xl border border-slate-200">
           <table class="w-full text-left border-collapse text-sm">
             <thead>
@@ -272,16 +229,12 @@
               </tr>
             </thead>
             <tbody id="report-table-body" class="divide-y divide-slate-200 text-xs">
-              <tr>
-                <td colspan="5" class="py-8 text-center text-slate-400">Loading waybill records...</td>
-              </tr>
+              <tr><td colspan="5" class="py-8 text-center text-slate-400">Loading waybill records...</td></tr>
             </tbody>
           </table>
         </div>
-
       </div>
 
-      <!-- Dedicated Drivers & Trucks Roster Section -->
       <div id="fleet-roster-container" class="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4 mb-4">
           <div>
@@ -309,21 +262,60 @@
               </tr>
             </thead>
             <tbody id="fleet-roster-body" class="divide-y divide-slate-200 text-xs">
-              <tr>
-                <td colspan="2" class="py-6 text-center text-slate-400">No drivers or trucks found for this selection.</td>
-              </tr>
+              <tr><td colspan="2" class="py-6 text-center text-slate-400">No drivers or trucks found for this selection.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
-
     </section>
   </main>
 
+  <!-- NEW: Photo review modal -->
+  <div id="ocr-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 no-print">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto p-5 sm:p-6">
+      <div class="flex items-start justify-between gap-3 mb-1">
+        <h3 class="text-base font-semibold text-slate-900">Review Waybill Photo <span id="ocr-counter" class="text-xs font-normal text-slate-500 ml-1"></span></h3>
+        <button onclick="closeOcrModal()" class="text-slate-400 hover:text-slate-700 text-lg leading-none px-2 cursor-pointer">✕</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-4">The text was read from your photo. Please check every field and correct any mistakes before importing.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <img id="ocr-preview-img" alt="Waybill photo" class="w-full max-h-72 object-contain rounded-xl border border-slate-200 bg-slate-50" />
+        <div class="grid grid-cols-2 gap-3 content-start">
+          <div><label class="block text-xs font-medium text-slate-700 mb-1">Date</label><input id="ocr-date" type="date" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-2" /></div>
+          <div><label class="block text-xs font-medium text-slate-700 mb-1">Shift</label>
+            <select id="ocr-shift" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-2 bg-white"><option>DAY</option><option>NIGHT</option></select></div>
+          <div><label class="block text-xs font-medium text-slate-700 mb-1">Direction</label>
+            <select id="ocr-direction" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-2 bg-white"><option>Outbound</option><option>Inbound</option></select></div>
+          <div><label class="block text-xs font-medium text-slate-700 mb-1">Transfer Number</label><input id="ocr-transfer" type="text" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-2" /></div>
+          <div><label class="block text-xs font-medium text-slate-700 mb-1">Driver Name</label><input id="ocr-driver" type="text" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-2" /></div>
+          <div><label class="block text-xs font-medium text-slate-700 mb-1">Truck Number</label><input id="ocr-truck" type="text" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-2" /></div>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <div class="flex items-center justify-between mb-1.5">
+          <p class="text-xs font-semibold text-slate-700">Products &amp; Quantities</p>
+          <button onclick="addOcrItemRow('', '')" class="text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer">+ Add item</button>
+        </div>
+        <p id="ocr-total-check" class="text-xs mb-2"></p>
+        <div id="ocr-items" class="space-y-2"></div>
+      </div>
+
+      <details class="mt-4">
+        <summary class="text-xs text-slate-500 cursor-pointer">Show raw text read from photo</summary>
+        <pre id="ocr-raw" class="mt-2 text-[11px] bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap max-h-40 overflow-y-auto"></pre>
+      </details>
+
+      <div class="flex justify-end gap-2 mt-5 pt-4 border-t border-slate-100">
+        <button onclick="closeOcrModal()" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl cursor-pointer">Cancel</button>
+        <button onclick="confirmOcrImport()" class="text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2.5 rounded-xl cursor-pointer">Import Waybill</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // In-memory Google Sheets Ledger Simulation (`Raw_Waybills`)
     let waybillLedger = [
-      // Primary Daily Transactions for 2026-11-21 (DAY & NIGHT Shifts)
       { date: '2026-11-21', shift: 'DAY', transferNumber: 'TR-11102026-001', movementType: 'Outbound', productType: 'Refrigerator 205L', quantity: 150, driverName: 'Kwame Mensah', truckNumber: 'GT-4421-24' },
       { date: '2026-11-21', shift: 'DAY', transferNumber: 'TR-11102026-002', movementType: 'Outbound', productType: 'Refrigerator 205L', quantity: 20, driverName: 'Ama Osei', truckNumber: 'GT-4421-24' },
       { date: '2026-11-21', shift: 'DAY', transferNumber: 'IN-11102026-001', movementType: 'Inbound', productType: 'Refrigerator 205L', quantity: 60, driverName: 'Yaw Boateng', truckNumber: 'AS-8812-23' },
@@ -333,8 +325,6 @@
       { date: '2026-11-21', shift: 'NIGHT', transferNumber: 'TR-11102026-004', movementType: 'Outbound', productType: 'Chest Freezer 300L', quantity: 40, driverName: 'Ama Osei', truckNumber: 'GN-1190-24' },
       { date: '2026-11-21', shift: 'NIGHT', transferNumber: 'TR-11102026-005', movementType: 'Outbound', productType: 'Smart TV 55"', quantity: 110, driverName: 'Kofi Appiah', truckNumber: 'WR-3019-22' },
       { date: '2026-11-21', shift: 'DAY', transferNumber: 'IN-11102026-004', movementType: 'Inbound', productType: 'Smart TV 55"', quantity: 140, driverName: 'Yaw Boateng', truckNumber: 'AS-8812-23' },
-
-      // Earlier Weekly/Monthly Historical Transactions (2026-11-15 to 2026-11-19)
       { date: '2026-11-19', shift: 'DAY', transferNumber: 'IN-19112026-001', movementType: 'Inbound', productType: 'Refrigerator 205L', quantity: 200, driverName: 'Samuel Tetteh', truckNumber: 'GE-7721-21' },
       { date: '2026-11-18', shift: 'NIGHT', transferNumber: 'TR-18112026-001', movementType: 'Outbound', productType: 'Smart TV 55"', quantity: 75, driverName: 'Kwame Mensah', truckNumber: 'GT-4421-24' },
       { date: '2026-11-16', shift: 'DAY', transferNumber: 'TR-16112026-001', movementType: 'Outbound', productType: 'Chest Freezer 300L', quantity: 65, driverName: 'Samuel Tetteh', truckNumber: 'GE-7721-21' },
@@ -345,19 +335,28 @@
     let sampleBatchCounter = 1;
     let currentReportRows = [];
     let currentRosterPairs = [];
+    let pendingOcrFileName = '';
     const APPS_SCRIPT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxpO3loKDm4FrJEwM0n3LtCteSh48LEH4dRn3CnicZBaYctd7RL2yjemvHC2G2s_beTCA/exec';
 
-    // Initialize App on Load
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('default-upload-date').value = '2026-11-21';
       document.getElementById('target-date').value = '2026-11-21';
       document.getElementById('start-date').value = '2026-11-15';
       document.getElementById('end-date').value = '2026-11-21';
-
       updateLedgerBadge();
       refreshProductDropdown();
       fetchReportPreview();
     });
+
+    // (Previously missing) keeps the "N records" badge in sync
+    function updateLedgerBadge() {
+      const n = waybillLedger.length;
+      document.getElementById('ledger-count-badge').textContent = `${n} record${n === 1 ? '' : 's'}`;
+    }
 
     function hasGoogleScriptRun() {
       return typeof google !== 'undefined' && google.script && google.script.run;
@@ -369,17 +368,10 @@
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action, payload })
       })
-        .then(res => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        })
-        .then(data => {
-          if (data && data.error) throw new Error(data.error);
-          return data;
-        });
+        .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+        .then(data => { if (data && data.error) throw new Error(data.error); return data; });
     }
 
-    // Toggle Single Date vs Date Range Inputs
     function toggleDateInputs() {
       const type = document.getElementById('report-type').value;
       const singleGroup = document.getElementById('single-date-group');
@@ -394,7 +386,6 @@
         singleGroup.classList.add('hidden');
         rangeGroup.classList.remove('hidden');
         productGroup.classList.add('lg:col-span-4');
-
         if (type === 'weekly') {
           document.getElementById('start-date').value = '2026-11-15';
           document.getElementById('end-date').value = '2026-11-21';
@@ -406,28 +397,310 @@
       fetchReportPreview();
     }
 
-    // Drag-and-Drop Event Listeners
+    // ---------- Upload handling ----------
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
 
     dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drop-zone-active');
-    });
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drop-zone-active'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drop-zone-active'));
     dropZone.addEventListener('drop', (e) => {
       e.preventDefault();
       dropZone.classList.remove('drop-zone-active');
-      if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
+      if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
     });
     fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length) handleFileUpload(e.target.files[0]);
+      if (e.target.files.length) handleFiles(e.target.files);
       fileInput.value = '';
     });
 
-    // Parse CSV/Excel via SheetJS and run validation pipeline
-    function handleFileUpload(file) {
+    function isImageFile(file) {
+      return (file.type && file.type.startsWith('image/')) || /\.(jpe?g|png|webp|bmp|gif|heic|heif)$/i.test(file.name);
+    }
+
+    // Router: images go to OCR, spreadsheets go to SheetJS
+    function handleFileUpload(file) { handleFiles([file]); }
+
+    // ---------- Photo (OCR) pipeline (tuned for Hisense "Warehouse to Showroom" waybills) ----------
+let ocrQueue = [];
+let ocrBusy = false, ocrDone = 0, ocrTotal = 0, ocrLabel = '';
+let ocrWorker = null;
+let ocrExpectedTotal = null;
+
+function setOcrStatus(msg, type) {
+  const box = document.getElementById('upload-status');
+  const styles = {
+    info: 'bg-blue-50 text-blue-800 border border-blue-200',
+    warning: 'bg-amber-50 text-amber-800 border border-amber-200'
+  };
+  box.className = `mt-4 p-3.5 rounded-xl text-xs ${styles[type || 'info']}`;
+  box.textContent = msg;
+  box.classList.remove('hidden');
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve({ img, url });
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('This image format could not be opened. Please use JPG or PNG (iPhone HEIC photos must be converted or taken as "Most Compatible").')); };
+    img.src = url;
+  });
+}
+
+// Upscale + grayscale + mild contrast boost so phone photos read better
+function preprocessImage(img) {
+  const maxSide = 2600, minWidth = 1800;
+  let scale = 1;
+  const longest = Math.max(img.naturalWidth, img.naturalHeight);
+  if (longest > maxSide) scale = maxSide / longest;
+  else if (img.naturalWidth < minWidth) scale = minWidth / img.naturalWidth;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.naturalWidth * scale);
+  canvas.height = Math.round(img.naturalHeight * scale);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    g = (g - 128) * 1.2 + 128 + 8;
+    g = Math.max(0, Math.min(255, g));
+    d[i] = d[i + 1] = d[i + 2] = g;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+// Accepts one or many files at once
+function handleFiles(fileList) {
+  const files = Array.from(fileList);
+  const images = files.filter(isImageFile);
+  files.filter(f => !isImageFile(f)).forEach(handleSpreadsheetUpload);
+  if (!images.length) return;
+  if (!ocrBusy) { ocrDone = 0; ocrTotal = 0; }
+  ocrQueue.push(...images);
+  ocrTotal += images.length;
+  if (!ocrBusy) processNextOcr();
+}
+
+async function getOcrWorker() {
+  if (ocrWorker) return ocrWorker;
+  ocrWorker = await Tesseract.createWorker('eng', 1, {
+    logger: m => {
+      if (m.status === 'recognizing text') setOcrStatus(`${ocrLabel}: reading text... ${Math.round(m.progress * 100)}%`);
+      else if (m.status) setOcrStatus(`${ocrLabel}: preparing reader (${m.status})...`);
+    }
+  });
+  await ocrWorker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
+  return ocrWorker;
+}
+
+async function processNextOcr() {
+  if (!ocrQueue.length) {
+    ocrBusy = false;
+    if (ocrWorker) { ocrWorker.terminate(); ocrWorker = null; }
+    return;
+  }
+  ocrBusy = true;
+  const file = ocrQueue.shift();
+  ocrDone++;
+  ocrLabel = `Photo ${ocrDone} of ${ocrTotal}`;
+  document.getElementById('error-details-box').classList.add('hidden');
+  try {
+    if (typeof Tesseract === 'undefined') throw new Error('The photo-reading library could not load. Check your internet connection and refresh the page.');
+    setOcrStatus(`${ocrLabel}: opening "${file.name}"...`);
+    const { img, url } = await loadImageElement(file);
+    const canvas = preprocessImage(img);
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(canvas);
+    const text = (data && data.text) || '';
+    if (!text.trim()) {
+      showUploadAlert(`${ocrLabel}: no text could be read. Try a clearer, well-lit, straight-on photo.`, 'error');
+      URL.revokeObjectURL(url);
+      return processNextOcr();
+    }
+    pendingOcrFileName = file.name;
+    document.getElementById('ocr-preview-img').src = url;
+    document.getElementById('ocr-counter').textContent = ocrTotal > 1 ? `(${ocrDone} of ${ocrTotal})` : '';
+    openOcrModal(parseWaybillText(text), text);
+    setOcrStatus(`${ocrLabel}: please review the details and click "Import Waybill".`, 'warning');
+  } catch (err) {
+    showUploadAlert(`${ocrLabel}: could not read photo (${err.message})`, 'error');
+    processNextOcr();
+  }
+}
+
+// Extract fields from the Hisense waybill layout (best-effort; user reviews before import)
+function parseWaybillText(text) {
+  const pad = (s) => String(s).padStart(2, '0');
+  const lines = text.split(/\r?\n/).map(l => l.replace(/[|\[\]]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const full = lines.join('\n');
+  const out = { date: '', transfer: '', driver: '', truck: '', direction: '', items: [], total: null, warn: '' };
+  let m;
+
+  // Date: prefer "DATE SHIPPED", else any DD/MM/YYYY, else YYYY-MM-DD
+  const dmy = (s) => { const x = s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/); return x ? `${x[3]}-${pad(x[2])}-${pad(x[1])}` : ''; };
+  m = full.match(/DATE\s*SHIPPED[^\d\n]*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i);
+  if (m) out.date = dmy(m[1]);
+  if (!out.date) out.date = dmy(full);
+  if (!out.date) { m = full.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/); if (m) out.date = `${m[1]}-${pad(m[2])}-${pad(m[3])}`; }
+
+  // Truck: e.g. "GT 4998-24" -> GT-4998-24
+  m = full.match(/REG\.?\s*NO\.?\s*[:\-]?\s*([A-Z]{1,3})[\s-]?(\d{3,4})[\s-]?(\d{2})/i)
+    || full.match(/\b([A-Z]{2})[\s-]?(\d{3,4})[\s-]?(\d{2})\b/);
+  if (m) out.truck = `${m[1]}-${m[2]}-${m[3]}`.toUpperCase();
+
+  // Driver: text after "DRIVER'S NAME" (same line, or the next line)
+  for (let i = 0; i < lines.length; i++) {
+    if (/DRIVER/i.test(lines[i]) && /NAME/i.test(lines[i])) {
+      let rest = lines[i].replace(/^.*NAME\s*[:\-]?/i, '').trim();
+      if (rest.length < 3 && lines[i + 1]) rest = lines[i + 1];
+      rest = rest.replace(/[^A-Za-z .'\-]/g, '').trim();
+      if (rest) { out.driver = rest; break; }
+    }
+  }
+
+  // Direction: "Warehouse to Showroom" is a dispatch (Outbound)
+  if (/WAREHOUSE\s*TO\s*SHOWROOM/i.test(full) || /\b(dispatch|outbound)\b/i.test(full)) out.direction = 'Outbound';
+  else if (/\b(inbound|goods received|grn)\b/i.test(full)) out.direction = 'Inbound';
+
+  // Item table: everything between the table header and the TOTAL row
+  let start = -1;
+  lines.forEach((l, i) => { if (/ITEM\s*NO|DESCRIPTION|QUANTITY|SHIPPED/i.test(l) && !/DATE\s*SHIPPED/i.test(l)) start = i; });
+  if (start < 0) lines.forEach((l, i) => { if (/RECEIVING|SHOWROOM/i.test(l) && !/WAREHOUSE\s*TO/i.test(l)) start = i; });
+
+  const descLines = [];
+  const nums = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^TOTAL\b/i.test(l)) {
+      const t = l.match(/(\d+)\s*$/);
+      if (t) out.total = parseInt(t[1], 10);
+      else if (lines[i + 1] && /^\d+$/.test(lines[i + 1])) out.total = parseInt(lines[i + 1], 10);
+      break;
+    }
+    if (/^\d{1,4}$/.test(l)) { nums.push(parseInt(l, 10)); continue; }
+    if (/[a-z]{4,}/.test(l) && /\s/.test(l)) descLines.push(l);
+  }
+  if (out.total == null && nums.length === descLines.length + 1) out.total = nums.pop();
+
+  const codeRe = /^(?:[0-9A-Z.\-]*\d[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*|[0-9A-Z.\-]*[A-Z][0-9A-Z.\-]*\d[0-9A-Z.\-]*)\s+(?=\S+\s)/;
+  const items = descLines.map(l => {
+    let t = l, qty = '';
+    const q = t.match(/\s(\d{1,4})$/);
+    if (q) { qty = q[1]; t = t.slice(0, q.index); }
+    t = t.replace(codeRe, '').replace(/^OUTDOOR\s+(?=AC\s)/i, '').trim();
+    return { product: t, qty };
+  });
+
+  const missing = items.filter(i => !i.qty);
+  if (missing.length && nums.length === missing.length) {
+    let k = 0;
+    items.forEach(i => { if (!i.qty) i.qty = String(nums[k++]); });
+  } else if (missing.length) {
+    out.warn = 'Some quantities could not be matched to products automatically. Please fill them in from the photo.';
+  }
+  out.items = items;
+  return out;
+}
+
+function updateOcrTotalCheck() {
+  const el = document.getElementById('ocr-total-check');
+  let sum = 0;
+  document.querySelectorAll('#ocr-items .ocr-item-qty').forEach(i => { sum += Number(i.value) || 0; });
+  if (ocrExpectedTotal == null) {
+    el.className = 'text-xs mb-2 text-slate-500';
+    el.textContent = `Sum of quantities: ${sum} (waybill TOTAL not detected, please compare with the photo).`;
+  } else if (sum === ocrExpectedTotal) {
+    el.className = 'text-xs mb-2 text-emerald-700 font-medium';
+    el.textContent = `✓ Sum of quantities (${sum}) matches the waybill TOTAL (${ocrExpectedTotal}).`;
+  } else {
+    el.className = 'text-xs mb-2 text-red-600 font-medium';
+    el.textContent = `⚠ Sum of quantities is ${sum} but the waybill TOTAL is ${ocrExpectedTotal}. Check the quantities against the photo.`;
+  }
+}
+
+function addOcrItemRow(product, qty) {
+  const wrap = document.getElementById('ocr-items');
+  const row = document.createElement('div');
+  row.className = 'grid grid-cols-12 gap-2 items-center';
+  row.innerHTML = `
+    <input type="text" placeholder="Product Type" class="ocr-item-product col-span-8 text-sm border border-slate-300 rounded-lg px-2.5 py-2" />
+    <input type="number" min="1" placeholder="Qty" class="ocr-item-qty col-span-3 text-sm border border-slate-300 rounded-lg px-2.5 py-2" />
+    <button type="button" class="col-span-1 text-red-500 hover:text-red-700 cursor-pointer" title="Remove">✕</button>`;
+  row.querySelector('.ocr-item-product').value = product || '';
+  row.querySelector('.ocr-item-qty').value = qty || '';
+  row.querySelector('button').addEventListener('click', () => { row.remove(); updateOcrTotalCheck(); });
+  wrap.appendChild(row);
+}
+
+function openOcrModal(parsed, rawText) {
+  document.getElementById('ocr-date').value = parsed.date || document.getElementById('default-upload-date').value;
+  document.getElementById('ocr-shift').value = document.getElementById('default-shift').value;
+  document.getElementById('ocr-direction').value = parsed.direction || document.getElementById('default-direction').value;
+  document.getElementById('ocr-transfer').value = parsed.transfer || '';
+  document.getElementById('ocr-transfer').placeholder = 'Auto-generated if blank';
+  document.getElementById('ocr-driver').value = parsed.driver || '';
+  document.getElementById('ocr-truck').value = parsed.truck || '';
+  document.getElementById('ocr-raw').textContent = rawText;
+  ocrExpectedTotal = parsed.total;
+  const wrap = document.getElementById('ocr-items');
+  wrap.innerHTML = '';
+  if (parsed.items.length) parsed.items.forEach(i => addOcrItemRow(i.product, i.qty));
+  else addOcrItemRow('', '');
+  updateOcrTotalCheck();
+  if (parsed.warn) document.getElementById('ocr-total-check').textContent += ' ' + parsed.warn;
+  document.getElementById('ocr-modal').classList.remove('hidden');
+}
+
+// Cancel / close: skip this photo and move to the next one in the queue
+function closeOcrModal() {
+  document.getElementById('ocr-modal').classList.add('hidden');
+  processNextOcr();
+}
+
+function confirmOcrImport() {
+  const date = document.getElementById('ocr-date').value;
+  const shift = document.getElementById('ocr-shift').value;
+  const direction = document.getElementById('ocr-direction').value;
+  const driver = document.getElementById('ocr-driver').value.trim();
+  const truck = document.getElementById('ocr-truck').value.trim().toUpperCase();
+  let transfer = document.getElementById('ocr-transfer').value.trim().toUpperCase();
+  if (!transfer) {
+    const d = (date || '').split('-').reverse().join('');
+    const t = truck.replace(/[^A-Z0-9]/g, '');
+    transfer = `WB-${d}-${t || Date.now().toString().slice(-5)}`;
+  }
+
+  const rows = [];
+  document.querySelectorAll('#ocr-items > div').forEach(r => {
+    const product = r.querySelector('.ocr-item-product').value.trim();
+    const qty = r.querySelector('.ocr-item-qty').value.trim();
+    if (product || qty) {
+      rows.push({ date, shift, transferNumber: transfer, movementType: direction, productType: product, quantity: qty, driverName: driver, truckNumber: truck });
+    }
+  });
+
+  if (!rows.length) { alert('Please add at least one product and quantity.'); return; }
+
+  // Jump the report view to the imported waybill's date/shift so it is visible right away
+  if (date) {
+    document.getElementById('report-type').value = 'daily';
+    document.getElementById('target-date').value = date;
+    document.getElementById('shift-filter').value = shift;
+    toggleDateInputs();
+  }
+
+  document.getElementById('ocr-modal').classList.add('hidden');
+  processAndValidateRows(rows, pendingOcrFileName || 'Waybill photo');
+  processNextOcr();
+}
+
+document.getElementById('ocr-items').addEventListener('input', updateOcrTotalCheck);
+
+// ---------- Spreadsheet (CSV / Excel) pipeline ----------
+    function handleSpreadsheetUpload(file) {
       const statusBox = document.getElementById('upload-status');
       const errorBox = document.getElementById('error-details-box');
       statusBox.className = 'mt-4 p-3.5 rounded-xl text-xs bg-blue-50 text-blue-800 border border-blue-200';
@@ -442,7 +715,6 @@
           const workbook = XLSX.read(data, { type: 'array', cellDates: true });
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
 
-          // Read as 2D array first to locate the real header row (skips title banners/blank top rows)
           const matrix = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '', blankrows: false });
           if (!matrix.length) {
             showUploadAlert('The uploaded file is empty. Please add waybill rows and try again.', 'error');
@@ -452,14 +724,10 @@
           const headerKeywords = ['product', 'item', 'sku', 'qty', 'quantity', 'transfer', 'waybill', 'driver', 'truck', 'vehicle', 'date'];
           let headerRowIdx = 0;
           let bestScore = -1;
-
           for (let i = 0; i < Math.min(matrix.length, 25); i++) {
             const rowCells = matrix[i].map(c => String(c || '').toLowerCase().replace(/[^a-z0-9]/g, ''));
             const score = rowCells.filter(cell => headerKeywords.some(kw => cell.includes(kw))).length;
-            if (score > bestScore) {
-              bestScore = score;
-              headerRowIdx = i;
-            }
+            if (score > bestScore) { bestScore = score; headerRowIdx = i; }
           }
 
           const rawJson = XLSX.utils.sheet_to_json(firstSheet, {
@@ -481,13 +749,11 @@
             if (val === null || val === undefined || String(val).trim() === '') return fallbackDate;
             if (val instanceof Date && !isNaN(val)) return val.toISOString().split('T')[0];
             if (typeof val === 'number' && val > 20000 && val < 90000) {
-              // Convert Excel serial date number
               const utcDays = Math.floor(val - 25569);
               const d = new Date(utcDays * 86400 * 1000);
               if (!isNaN(d)) return d.toISOString().split('T')[0];
             }
             const str = String(val).trim();
-            // Handle DD/MM/YYYY or DD-MM-YYYY formats
             const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
             if (dmyMatch) {
               const [, d, m, y] = dmyMatch;
@@ -504,10 +770,8 @@
                 const match = keys.find(k => patterns.some(p => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(p)));
                 return match ? row[match] : '';
               };
-
               const parsedDate = normalizeDateValue(findVal(['date', 'transactiondate', 'created', 'day']));
               const rawTransfer = String(findVal(['transfer', 'waybill', 'ref', 'docno', 'voucher']) || '').trim().toUpperCase();
-
               return {
                 sourceRowNum: (bestScore >= 2 ? headerRowIdx : 0) + idx + 2,
                 date: parsedDate,
@@ -529,7 +793,6 @@
       reader.readAsArrayBuffer(file);
     }
 
-    // Simulate uploading a new batch directly in the browser preview
     function loadAdditionalSampleBatch() {
       const batchId = String(sampleBatchCounter).padStart(2, '0');
       const selectedShift = document.getElementById('default-shift').value;
@@ -542,25 +805,19 @@
       processAndValidateRows(simulatedRows, `Sample_Dispatch_Batch_${batchId}.xlsx`);
     }
 
-    // Validation & Ingestion Engine
+    // ---------- Validation & ingestion ----------
     function processAndValidateRows(rows, fileName) {
       if (hasGoogleScriptRun()) {
         google.script.run
-          .withSuccessHandler((res) => {
-            finalizeBackendIngestion(res, rows, fileName);
-          })
-          .withFailureHandler((err) => {
-            showUploadAlert(`Server Error: ${err.message}`, 'error');
-          })
+          .withSuccessHandler((res) => finalizeBackendIngestion(res, rows, fileName))
+          .withFailureHandler((err) => showUploadAlert(`Server Error: ${err.message}`, 'error'))
           .ingestWaybillRows(rows, fileName);
         return;
       }
 
       if (APPS_SCRIPT_WEB_APP_URL) {
         callBackendApi('ingestWaybillRows', { rows, fileName })
-          .then((res) => {
-            finalizeBackendIngestion(res, rows, fileName);
-          })
+          .then((res) => finalizeBackendIngestion(res, rows, fileName))
           .catch((err) => {
             showUploadAlert(`Remote sheet sync failed (${err.message}). Updating local preview instead.`, 'warning');
             ingestRowsLocally(rows, fileName);
@@ -617,7 +874,6 @@
             driverName: row.driverName,
             truckNumber: row.truckNumber
           });
-
           existingKeys.add(`${row.transferNumber}_${row.productType.toLowerCase()}`);
           importedCount++;
         }
@@ -662,13 +918,11 @@
       box.classList.remove('hidden');
     }
 
-    // Dynamically populate Product Filter from unique products in ledger
     function refreshProductDropdown() {
       const populate = (products) => {
         const select = document.getElementById('product-filter');
         const currentVal = select.value;
         const uniqueProducts = Array.from(new Set(products || [])).sort();
-
         select.innerHTML = '<option value="ALL">All Products</option>';
         uniqueProducts.forEach(p => {
           const opt = document.createElement('option');
@@ -676,10 +930,7 @@
           opt.textContent = p;
           select.appendChild(opt);
         });
-
-        if (uniqueProducts.includes(currentVal)) {
-          select.value = currentVal;
-        }
+        if (uniqueProducts.includes(currentVal)) select.value = currentVal;
       };
 
       const localProducts = waybillLedger.map(r => r.productType);
@@ -687,20 +938,16 @@
 
       if (hasGoogleScriptRun()) {
         google.script.run
-          .withSuccessHandler((remoteProducts) => {
-            populate([...localProducts, ...(remoteProducts || [])]);
-          })
+          .withSuccessHandler((remoteProducts) => populate([...localProducts, ...(remoteProducts || [])]))
           .getDistinctProducts();
       } else if (APPS_SCRIPT_WEB_APP_URL) {
         callBackendApi('getDistinctProducts', {})
-          .then((remoteProducts) => {
-            populate([...localProducts, ...(Array.isArray(remoteProducts) ? remoteProducts : [])]);
-          })
+          .then((remoteProducts) => populate([...localProducts, ...(Array.isArray(remoteProducts) ? remoteProducts : [])]))
           .catch(() => {});
       }
     }
 
-    // Aggregate Ledger Data for Daily, Weekly, or Monthly Report
+    // ---------- Reporting ----------
     function fetchReportPreview() {
       const reportType = document.getElementById('report-type').value;
       const shiftFilter = document.getElementById('shift-filter').value;
@@ -710,15 +957,7 @@
       const endDate = document.getElementById('end-date').value;
       const matchPeriod = document.getElementById('roster-use-period').checked;
 
-      const queryParams = {
-        reportType,
-        shiftFilter,
-        productFilter,
-        targetDate,
-        startDate,
-        endDate,
-        matchPeriod
-      };
+      const queryParams = { reportType, shiftFilter, productFilter, targetDate, startDate, endDate, matchPeriod };
 
       const applyReportPayload = (payload) => {
         const rows = payload.rows || [];
@@ -740,23 +979,18 @@
         renderFleetRoster(rosterPairs);
       };
 
-      const localResult = buildLocalReportData(queryParams);
-      applyReportPayload(localResult);
+      applyReportPayload(buildLocalReportData(queryParams));
 
       if (hasGoogleScriptRun()) {
         google.script.run
           .withSuccessHandler((remoteData) => {
-            if (remoteData && Array.isArray(remoteData.rows) && remoteData.rows.length > 0) {
-              applyReportPayload(remoteData);
-            }
+            if (remoteData && Array.isArray(remoteData.rows) && remoteData.rows.length > 0) applyReportPayload(remoteData);
           })
           .getReportData(queryParams);
       } else if (APPS_SCRIPT_WEB_APP_URL) {
         callBackendApi('getReportData', queryParams)
           .then((remoteData) => {
-            if (remoteData && Array.isArray(remoteData.rows) && remoteData.rows.length > 0) {
-              applyReportPayload(remoteData);
-            }
+            if (remoteData && Array.isArray(remoteData.rows) && remoteData.rows.length > 0) applyReportPayload(remoteData);
           })
           .catch(() => {});
       }
@@ -766,11 +1000,8 @@
       const filteredRecords = waybillLedger.filter(r => {
         if (shiftFilter !== 'ALL' && (r.shift || 'DAY') !== shiftFilter) return false;
         if (productFilter !== 'ALL' && r.productType !== productFilter) return false;
-        if (reportType === 'daily') {
-          return r.date === targetDate;
-        } else {
-          return r.date >= startDate && r.date <= endDate;
-        }
+        if (reportType === 'daily') return r.date === targetDate;
+        return r.date >= startDate && r.date <= endDate;
       });
 
       const rosterSourceRecords = matchPeriod
@@ -787,23 +1018,11 @@
       filteredRecords.forEach(r => {
         distinctDrivers.add(r.driverName);
         distinctTrucks.add(r.truckNumber);
-
         if (!summaryMap[r.productType]) {
-          summaryMap[r.productType] = {
-            product: r.productType,
-            inbound: 0,
-            outbound: 0,
-            transfers: [],
-            fleet: new Set()
-          };
+          summaryMap[r.productType] = { product: r.productType, inbound: 0, outbound: 0, transfers: [], fleet: new Set() };
         }
-
-        if (r.movementType === 'Inbound') {
-          summaryMap[r.productType].inbound += r.quantity;
-        } else {
-          summaryMap[r.productType].outbound += r.quantity;
-        }
-
+        if (r.movementType === 'Inbound') summaryMap[r.productType].inbound += r.quantity;
+        else summaryMap[r.productType].outbound += r.quantity;
         summaryMap[r.productType].transfers.push(`${r.transferNumber} (${r.quantity})`);
         summaryMap[r.productType].fleet.add(`${r.driverName} [${r.truckNumber}]`);
       });
@@ -820,156 +1039,40 @@
       const pairMap = new Map();
       rosterSourceRecords.forEach(r => {
         const key = `${r.driverName.trim()}|||${r.truckNumber.trim()}`;
-        if (!pairMap.has(key)) {
-          pairMap.set(key, {
-            driverName: r.driverName.trim(),
-            truckNumber: r.truckNumber.trim()
-          });
-        }
+        if (!pairMap.has(key)) pairMap.set(key, { driverName: r.driverName.trim(), truckNumber: r.truckNumber.trim() });
       });
       const rosterPairs = Array.from(pairMap.values()).sort((a, b) =>
         a.driverName.localeCompare(b.driverName) || a.truckNumber.localeCompare(b.truckNumber)
       );
 
-      return {
-        rows,
-        rosterPairs,
-        distinctDrivers: distinctDrivers.size,
-        distinctTrucks: distinctTrucks.size
-      };
-    }
+      return { rows, rosterPairs, distinctDrivers: distinctDrivers.size, distinctTrucks: distinctTrucks.size };
     }
 
-    // Aggregate Ledger Data for Daily, Weekly, or Monthly Report
-    function fetchReportPreview() {
-      const reportType = document.getElementById('report-type').value;
-      const shiftFilter = document.getElementById('shift-filter').value;
-      const productFilter = document.getElementById('product-filter').value;
-      const targetDate = document.getElementById('target-date').value;
-      const startDate = document.getElementById('start-date').value;
-      const endDate = document.getElementById('end-date').value;
-      const matchPeriod = document.getElementById('roster-use-period').checked;
-
-      const filteredRecords = waybillLedger.filter(r => {
-        if (shiftFilter !== 'ALL' && (r.shift || 'DAY') !== shiftFilter) return false;
-        if (productFilter !== 'ALL' && r.productType !== productFilter) return false;
-        if (reportType === 'daily') {
-          return r.date === targetDate;
-        } else {
-          return r.date >= startDate && r.date <= endDate;
-        }
-      });
-
-      const rosterSourceRecords = matchPeriod
-        ? filteredRecords
-        : waybillLedger.filter(r => {
-            if (shiftFilter !== 'ALL' && (r.shift || 'DAY') !== shiftFilter) return false;
-            return productFilter === 'ALL' || r.productType === productFilter;
-          });
-
-      const summaryMap = {};
-      const distinctDrivers = new Set();
-      const distinctTrucks = new Set();
-
-      filteredRecords.forEach(r => {
-        distinctDrivers.add(r.driverName);
-        distinctTrucks.add(r.truckNumber);
-
-        if (!summaryMap[r.productType]) {
-          summaryMap[r.productType] = {
-            product: r.productType,
-            inbound: 0,
-            outbound: 0,
-            transfers: [],
-            fleet: new Set()
-          };
-        }
-
-        if (r.movementType === 'Inbound') {
-          summaryMap[r.productType].inbound += r.quantity;
-        } else {
-          summaryMap[r.productType].outbound += r.quantity;
-        }
-
-        summaryMap[r.productType].transfers.push(`${r.transferNumber} (${r.quantity})`);
-        summaryMap[r.productType].fleet.add(`${r.driverName} [${r.truckNumber}]`);
-      });
-
-      const rows = Object.values(summaryMap).map(item => ({
-        product: item.product,
-        inbound: item.inbound,
-        outbound: item.outbound,
-        net: item.inbound - item.outbound,
-        transfersStr: item.transfers.join(', '),
-        fleetStr: Array.from(item.fleet).join('; ')
-      }));
-
-      // Build strictly unique Driver's Name + Truck Number pairs
-      const pairMap = new Map();
-      rosterSourceRecords.forEach(r => {
-        const key = `${r.driverName.trim()}|||${r.truckNumber.trim()}`;
-        if (!pairMap.has(key)) {
-          pairMap.set(key, {
-            driverName: r.driverName.trim(),
-            truckNumber: r.truckNumber.trim()
-          });
-        }
-      });
-      const rosterPairs = Array.from(pairMap.values()).sort((a, b) =>
-        a.driverName.localeCompare(b.driverName) || a.truckNumber.localeCompare(b.truckNumber)
-      );
-
-      currentReportRows = rows;
-      currentRosterPairs = rosterPairs;
-
-      const shiftLabel = shiftFilter === 'ALL' ? 'All Shifts (DAY & NIGHT)' : `${shiftFilter} Shift`;
-      document.getElementById('roster-scope-label').textContent = matchPeriod
-        ? (reportType === 'daily' ? `Date: ${targetDate} | Shift: ${shiftLabel}` : `Period: ${startDate} to ${endDate} | Shift: ${shiftLabel}`)
-        : `All recorded dates in ledger | Shift: ${shiftLabel}`;
-
-      renderReportUI({
-        rows,
-        distinctDrivers: distinctDrivers.size,
-        distinctTrucks: distinctTrucks.size
-      }, reportType, shiftFilter, targetDate, startDate, endDate);
-
-      renderFleetRoster(rosterPairs);
-    }
-
-    // Render strictly Driver's Name and Truck Number in the roster table
     function renderFleetRoster(pairs) {
       const tbody = document.getElementById('fleet-roster-body');
       tbody.innerHTML = '';
-
       if (!pairs || pairs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="2" class="py-6 text-center text-slate-400">No drivers or trucks found for this selection.</td></tr>';
         return;
       }
-
       pairs.forEach(pair => {
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-slate-50/80 transition';
         tr.innerHTML = `
-          <td class="py-3 px-4 font-medium text-slate-900">${pair.driverName}</td>
-          <td class="py-3 px-4 font-mono text-slate-700">${pair.truckNumber}</td>
-        `;
+          <td class="py-3 px-4 font-medium text-slate-900">${esc(pair.driverName)}</td>
+          <td class="py-3 px-4 font-mono text-slate-700">${esc(pair.truckNumber)}</td>`;
         tbody.appendChild(tr);
       });
     }
 
-    // Render KPIs, Chart.js Bar Chart, and Aggregation Table
     function renderReportUI(data, reportType, shiftFilter, targetDate, startDate, endDate) {
       document.getElementById('generated-timestamp').textContent = new Date().toLocaleString();
-      
-      const badgeMap = {
-        daily: 'Daily Logistics Report',
-        weekly: 'Weekly Summary Report',
-        monthly: 'Monthly Summary Report'
-      };
+
+      const badgeMap = { daily: 'Daily Logistics Report', weekly: 'Weekly Summary Report', monthly: 'Monthly Summary Report' };
       const shiftText = shiftFilter === 'ALL' ? 'ALL SHIFTS (DAY & NIGHT)' : `${shiftFilter} SHIFT`;
       document.getElementById('report-badge').textContent = `${badgeMap[reportType]} • ${shiftText}`;
-      document.getElementById('report-subtitle').textContent = reportType === 'daily' 
-        ? `Transaction Date: ${targetDate || 'Not selected'} | Shift: ${shiftText}` 
+      document.getElementById('report-subtitle').textContent = reportType === 'daily'
+        ? `Transaction Date: ${targetDate || 'Not selected'} | Shift: ${shiftText}`
         : `Reporting Period: ${startDate || '--'} to ${endDate || '--'} | Shift: ${shiftText}`;
 
       let totalIn = 0;
@@ -987,15 +1090,14 @@
           const tr = document.createElement('tr');
           tr.className = 'hover:bg-slate-50/80 transition';
           tr.innerHTML = `
-            <td class="py-3.5 px-3.5 font-semibold text-slate-900 align-top">${r.product}</td>
+            <td class="py-3.5 px-3.5 font-semibold text-slate-900 align-top">${esc(r.product)}</td>
             <td class="py-3.5 px-3.5 text-right text-emerald-700 font-medium align-top">${r.inbound.toLocaleString()}</td>
             <td class="py-3.5 px-3.5 text-right text-blue-700 font-medium align-top">${r.outbound.toLocaleString()}</td>
             <td class="py-3.5 px-3.5 text-right font-semibold ${netClass} align-top">${r.net > 0 ? '+' : ''}${r.net.toLocaleString()}</td>
             <td class="py-3.5 px-3.5 text-slate-600 align-top">
-              <div class="font-medium text-slate-700">${r.transfersStr}</div>
-              <div class="text-[11px] text-slate-500 mt-0.5">Fleet: ${r.fleetStr}</div>
-            </td>
-          `;
+              <div class="font-medium text-slate-700">${esc(r.transfersStr)}</div>
+              <div class="text-[11px] text-slate-500 mt-0.5">Fleet: ${esc(r.fleetStr)}</div>
+            </td>`;
           tbody.appendChild(tr);
         });
       }
@@ -1008,59 +1110,31 @@
       updateChart(data.rows || []);
     }
 
-    // Render or refresh the Chart.js bar chart
     function updateChart(rows) {
       const canvas = document.getElementById('movementChart');
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      if (chartInstance) {
-        chartInstance.destroy();
-      }
+      if (chartInstance) chartInstance.destroy();
 
       chartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
           labels: rows.map(r => r.product),
           datasets: [
-            {
-              label: 'Inbound Qty',
-              data: rows.map(r => r.inbound),
-              backgroundColor: '#10b981',
-              borderRadius: 6
-            },
-            {
-              label: 'Outbound Qty',
-              data: rows.map(r => r.outbound),
-              backgroundColor: '#2563eb',
-              borderRadius: 6
-            }
+            { label: 'Inbound Qty', data: rows.map(r => r.inbound), backgroundColor: '#10b981', borderRadius: 6 },
+            { label: 'Outbound Qty', data: rows.map(r => r.outbound), backgroundColor: '#2563eb', borderRadius: 6 }
           ]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'top',
-              labels: {
-                font: { family: 'Inter', size: 12 }
-              }
-            }
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              grid: { color: '#e2e8f0' }
-            },
-            x: {
-              grid: { display: false }
-            }
-          }
+          plugins: { legend: { position: 'top', labels: { font: { family: 'Inter', size: 12 } } } },
+          scales: { y: { beginAtZero: true, grid: { color: '#e2e8f0' } }, x: { grid: { display: false } } }
         }
       });
     }
 
-    // Export PDF containing strictly Product Type, Inbound Quantity, and Outbound Quantity
+    // ---------- PDF exports ----------
     function exportProductQuantitiesPdf() {
       const reportType = document.getElementById('report-type').value;
       const shiftFilter = document.getElementById('shift-filter').value;
@@ -1079,11 +1153,7 @@
       doc.setTextColor(100);
       doc.text(`${reportType.toUpperCase()} | Shift: ${shiftLabel} (${scopeText})`, 40, 62);
 
-      const tableRows = currentReportRows.map(r => [
-        r.product,
-        r.inbound.toLocaleString(),
-        r.outbound.toLocaleString()
-      ]);
+      const tableRows = currentReportRows.map(r => [r.product, r.inbound.toLocaleString(), r.outbound.toLocaleString()]);
 
       doc.autoTable({
         startY: 78,
@@ -1091,10 +1161,7 @@
         body: tableRows.length ? tableRows : [['No records', '0', '0']],
         styles: { fontSize: 10, cellPadding: 8 },
         headStyles: { fillColor: [15, 23, 42] },
-        columnStyles: {
-          1: { halign: 'right' },
-          2: { halign: 'right' }
-        }
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } }
       });
 
       const fileName = `Product_Quantities_${shiftFilter}_${reportType}_${reportType === 'daily' ? targetDate : `${startDate}_to_${endDate}`}.pdf`;
@@ -1102,7 +1169,6 @@
       showExportToast(`Downloaded "${fileName}" (${shiftLabel}) with Product Type, Inbound Quantity, and Outbound Quantity.`);
     }
 
-    // Export PDF containing strictly Driver's Name and Truck Number
     function downloadDriversAndTrucksPdf() {
       const matchPeriod = document.getElementById('roster-use-period').checked;
       const reportType = document.getElementById('report-type').value;
@@ -1141,13 +1207,10 @@
     }
 
     function showExportToast(message) {
-      const toast = document.getElementById('export-toast');
-      const msg = document.getElementById('export-toast-msg');
-      msg.textContent = message;
-      toast.classList.remove('hidden');
+      document.getElementById('export-toast-msg').textContent = message;
+      document.getElementById('export-toast').classList.remove('hidden');
     }
 
-    // Generate & download a sample CSV template for dispatchers
     function downloadSampleTemplate() {
       const csvContent = [
         'Date,Shift,Transfer Number,Movement Type,Product Type,Quantity,Driver Name,Truck Number',
@@ -1155,7 +1218,6 @@
         '2026-11-21,NIGHT,IN-21112026-102,Inbound,Split AC 1.5HP,80,Yaw Boateng,AS-8812-23',
         '2026-11-21,DAY,TR-21112026-103,Outbound,Microwave 25L,60,Ama Osei,GN-1190-24'
       ].join('\n');
-
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);

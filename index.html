@@ -71,7 +71,7 @@
         </div>
         <p class="text-xs text-slate-500 mb-4">Supports .CSV, .XLSX, and .XLS files</p>
 
-        <!-- Default Batch Movement Type Fallback -->
+        <!-- Default Batch Movement Type, Shift & Date Fallback -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div>
             <label for="default-direction" class="block text-xs font-medium text-slate-700 mb-1.5">Default Movement Direction</label>
@@ -86,6 +86,10 @@
               <option value="DAY">DAY Shift</option>
               <option value="NIGHT">NIGHT Shift</option>
             </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label for="default-upload-date" class="block text-xs font-medium text-slate-700 mb-1.5">Default Date (used if sheet has no Date column)</label>
+            <input type="date" id="default-upload-date" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
 
@@ -341,9 +345,11 @@
     let sampleBatchCounter = 1;
     let currentReportRows = [];
     let currentRosterPairs = [];
+    const APPS_SCRIPT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxpO3loKDm4FrJEwM0n3LtCteSh48LEH4dRn3CnicZBaYctd7RL2yjemvHC2G2s_beTCA/exec';
 
     // Initialize App on Load
     window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('default-upload-date').value = '2026-11-21';
       document.getElementById('target-date').value = '2026-11-21';
       document.getElementById('start-date').value = '2026-11-15';
       document.getElementById('end-date').value = '2026-11-21';
@@ -353,8 +359,24 @@
       fetchReportPreview();
     });
 
-    function updateLedgerBadge() {
-      document.getElementById('ledger-count-badge').textContent = `${waybillLedger.length} records stored`;
+    function hasGoogleScriptRun() {
+      return typeof google !== 'undefined' && google.script && google.script.run;
+    }
+
+    function callBackendApi(action, payload) {
+      return fetch(APPS_SCRIPT_WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, payload })
+      })
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .then(data => {
+          if (data && data.error) throw new Error(data.error);
+          return data;
+        });
     }
 
     // Toggle Single Date vs Date Range Inputs
@@ -419,39 +441,85 @@
           const data = new Uint8Array(e.target.result);
           const workbook = XLSX.read(data, { type: 'array', cellDates: true });
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const rawJson = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+          // Read as 2D array first to locate the real header row (skips title banners/blank top rows)
+          const matrix = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '', blankrows: false });
+          if (!matrix.length) {
+            showUploadAlert('The uploaded file is empty. Please add waybill rows and try again.', 'error');
+            return;
+          }
+
+          const headerKeywords = ['product', 'item', 'sku', 'qty', 'quantity', 'transfer', 'waybill', 'driver', 'truck', 'vehicle', 'date'];
+          let headerRowIdx = 0;
+          let bestScore = -1;
+
+          for (let i = 0; i < Math.min(matrix.length, 25); i++) {
+            const rowCells = matrix[i].map(c => String(c || '').toLowerCase().replace(/[^a-z0-9]/g, ''));
+            const score = rowCells.filter(cell => headerKeywords.some(kw => cell.includes(kw))).length;
+            if (score > bestScore) {
+              bestScore = score;
+              headerRowIdx = i;
+            }
+          }
+
+          const rawJson = XLSX.utils.sheet_to_json(firstSheet, {
+            range: bestScore >= 2 ? headerRowIdx : 0,
+            defval: '',
+            blankrows: false
+          });
 
           if (!rawJson.length) {
-            showUploadAlert('The uploaded file is empty. Please add waybill rows and try again.', 'error');
+            showUploadAlert('No data rows found beneath the header row.', 'error');
             return;
           }
 
           const defaultDirection = document.getElementById('default-direction').value;
           const defaultShift = document.getElementById('default-shift').value;
+          const fallbackDate = document.getElementById('default-upload-date').value;
 
-          const normalizedRows = rawJson.map(row => {
-            const keys = Object.keys(row);
-            const findVal = (patterns) => {
-              const match = keys.find(k => patterns.some(p => k.toLowerCase().replace(/[^a-z]/g, '').includes(p)));
-              return match ? row[match] : '';
-            };
-
-            let rawDate = findVal(['date', 'transactiondate']);
-            if (rawDate instanceof Date && !isNaN(rawDate)) {
-              rawDate = rawDate.toISOString().split('T')[0];
+          const normalizeDateValue = (val) => {
+            if (val === null || val === undefined || String(val).trim() === '') return fallbackDate;
+            if (val instanceof Date && !isNaN(val)) return val.toISOString().split('T')[0];
+            if (typeof val === 'number' && val > 20000 && val < 90000) {
+              // Convert Excel serial date number
+              const utcDays = Math.floor(val - 25569);
+              const d = new Date(utcDays * 86400 * 1000);
+              if (!isNaN(d)) return d.toISOString().split('T')[0];
             }
+            const str = String(val).trim();
+            // Handle DD/MM/YYYY or DD-MM-YYYY formats
+            const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+            if (dmyMatch) {
+              const [, d, m, y] = dmyMatch;
+              return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+            }
+            return str;
+          };
 
-            return {
-              date: String(rawDate || '').trim(),
-              shift: String(findVal(['shift']) || defaultShift).trim().toUpperCase(),
-              transferNumber: String(findVal(['transfer', 'waybill']) || '').trim().toUpperCase(),
-              productType: String(findVal(['product', 'item', 'sku']) || '').trim(),
-              quantity: findVal(['qty', 'quantity', 'units']),
-              driverName: String(findVal(['driver']) || '').trim(),
-              truckNumber: String(findVal(['truck', 'vehicle', 'plate']) || '').trim().toUpperCase(),
-              movementType: String(findVal(['movement', 'direction', 'type']) || defaultDirection).trim()
-            };
-          });
+          const normalizedRows = rawJson
+            .filter(row => Object.values(row).some(v => String(v || '').trim() !== ''))
+            .map((row, idx) => {
+              const keys = Object.keys(row);
+              const findVal = (patterns) => {
+                const match = keys.find(k => patterns.some(p => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(p)));
+                return match ? row[match] : '';
+              };
+
+              const parsedDate = normalizeDateValue(findVal(['date', 'transactiondate', 'created', 'day']));
+              const rawTransfer = String(findVal(['transfer', 'waybill', 'ref', 'docno', 'voucher']) || '').trim().toUpperCase();
+
+              return {
+                sourceRowNum: (bestScore >= 2 ? headerRowIdx : 0) + idx + 2,
+                date: parsedDate,
+                shift: String(findVal(['shift']) || defaultShift).trim().toUpperCase(),
+                transferNumber: rawTransfer || `WB-${parsedDate.replace(/-/g, '')}-${String(idx + 1).padStart(3, '0')}`,
+                productType: String(findVal(['product', 'item', 'description', 'sku', 'material']) || '').trim(),
+                quantity: findVal(['qty', 'quantity', 'units', 'pcs', 'cartons', 'volume']),
+                driverName: String(findVal(['driver', 'operator']) || '').trim(),
+                truckNumber: String(findVal(['truck', 'vehicle', 'plate', 'regno', 'carno']) || '').trim().toUpperCase(),
+                movementType: String(findVal(['movement', 'direction', 'type', 'inout']) || defaultDirection).trim()
+              };
+            });
 
           processAndValidateRows(normalizedRows, file.name);
         } catch (err) {
@@ -476,26 +544,67 @@
 
     // Validation & Ingestion Engine
     function processAndValidateRows(rows, fileName) {
+      if (hasGoogleScriptRun()) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            finalizeBackendIngestion(res, rows, fileName);
+          })
+          .withFailureHandler((err) => {
+            showUploadAlert(`Server Error: ${err.message}`, 'error');
+          })
+          .ingestWaybillRows(rows, fileName);
+        return;
+      }
+
+      if (APPS_SCRIPT_WEB_APP_URL) {
+        callBackendApi('ingestWaybillRows', { rows, fileName })
+          .then((res) => {
+            finalizeBackendIngestion(res, rows, fileName);
+          })
+          .catch((err) => {
+            showUploadAlert(`Remote sheet sync failed (${err.message}). Updating local preview instead.`, 'warning');
+            ingestRowsLocally(rows, fileName);
+          });
+        return;
+      }
+
+      ingestRowsLocally(rows, fileName);
+    }
+
+    function finalizeBackendIngestion(res, rows, fileName) {
+      ingestRowsLocally(rows, fileName, true);
+      if (!res.rejected || res.rejected === 0) {
+        showUploadAlert(`Successfully imported ${res.imported || 0} waybill record(s) from "${fileName}" to Google Sheets.`, 'success');
+        document.getElementById('error-details-box').classList.add('hidden');
+      } else {
+        showUploadAlert(`Imported ${res.imported || 0} valid row(s) from "${fileName}". Skipped ${res.rejected} invalid row(s).`, 'warning');
+        renderValidationErrors(res.errors || []);
+      }
+      refreshProductDropdown();
+      fetchReportPreview();
+    }
+
+    function ingestRowsLocally(rows, fileName, silentSuccess = false) {
       const existingKeys = new Set(waybillLedger.map(r => `${r.transferNumber}_${r.productType.toLowerCase()}`));
       let importedCount = 0;
       const errors = [];
 
       rows.forEach((row, idx) => {
-        const rowNum = idx + 2;
-        const qty = Number(row.quantity);
+        const rowNum = row.sourceRowNum || (idx + 2);
+        const qty = Number(String(row.quantity).replace(/,/g, ''));
         const parsedDate = new Date(row.date);
 
         if (!row.date || isNaN(parsedDate.getTime())) {
           errors.push({ rowNum, reason: `Invalid or missing Date ("${row.date}")` });
-        } else if (!row.productType || !row.transferNumber || !row.driverName || !row.truckNumber) {
-          errors.push({ rowNum, reason: 'Missing required field(s): Product, Transfer #, Driver, or Truck' });
+        } else if (!row.productType || !row.driverName || !row.truckNumber) {
+          errors.push({ rowNum, reason: 'Missing required field(s): Product, Driver, or Truck Number' });
         } else if (isNaN(qty) || qty <= 0) {
           errors.push({ rowNum, reason: `Quantity must be a positive number (found "${row.quantity}")` });
         } else if (existingKeys.has(`${row.transferNumber}_${row.productType.toLowerCase()}`)) {
           errors.push({ rowNum, reason: `Duplicate Transfer + Product (${row.transferNumber} / ${row.productType})` });
         } else {
           const formattedDate = parsedDate.toISOString().split('T')[0];
-          const normalizedDir = row.movementType.toLowerCase() === 'inbound' ? 'Inbound' : 'Outbound';
+          const normalizedDir = row.movementType.toLowerCase().includes('in') ? 'Inbound' : 'Outbound';
           const normalizedShift = (row.shift || 'DAY').toUpperCase() === 'NIGHT' ? 'NIGHT' : 'DAY';
 
           waybillLedger.push({
@@ -514,12 +623,14 @@
         }
       });
 
-      if (errors.length === 0) {
-        showUploadAlert(`Successfully imported ${importedCount} waybill record(s) from "${fileName}".`, 'success');
-        document.getElementById('error-details-box').classList.add('hidden');
-      } else {
-        showUploadAlert(`Imported ${importedCount} valid row(s) from "${fileName}". Skipped ${errors.length} invalid row(s).`, 'warning');
-        renderValidationErrors(errors);
+      if (!silentSuccess) {
+        if (errors.length === 0) {
+          showUploadAlert(`Successfully imported ${importedCount} waybill record(s) from "${fileName}".`, 'success');
+          document.getElementById('error-details-box').classList.add('hidden');
+        } else {
+          showUploadAlert(`Imported ${importedCount} valid row(s) from "${fileName}". Skipped ${errors.length} invalid row(s).`, 'warning');
+          renderValidationErrors(errors);
+        }
       }
 
       updateLedgerBadge();
@@ -553,21 +664,180 @@
 
     // Dynamically populate Product Filter from unique products in ledger
     function refreshProductDropdown() {
-      const select = document.getElementById('product-filter');
-      const currentVal = select.value;
-      const uniqueProducts = Array.from(new Set(waybillLedger.map(r => r.productType))).sort();
+      const populate = (products) => {
+        const select = document.getElementById('product-filter');
+        const currentVal = select.value;
+        const uniqueProducts = Array.from(new Set(products || [])).sort();
 
-      select.innerHTML = '<option value="ALL">All Products</option>';
-      uniqueProducts.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p;
-        opt.textContent = p;
-        select.appendChild(opt);
+        select.innerHTML = '<option value="ALL">All Products</option>';
+        uniqueProducts.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p;
+          opt.textContent = p;
+          select.appendChild(opt);
+        });
+
+        if (uniqueProducts.includes(currentVal)) {
+          select.value = currentVal;
+        }
+      };
+
+      const localProducts = waybillLedger.map(r => r.productType);
+      populate(localProducts);
+
+      if (hasGoogleScriptRun()) {
+        google.script.run
+          .withSuccessHandler((remoteProducts) => {
+            populate([...localProducts, ...(remoteProducts || [])]);
+          })
+          .getDistinctProducts();
+      } else if (APPS_SCRIPT_WEB_APP_URL) {
+        callBackendApi('getDistinctProducts', {})
+          .then((remoteProducts) => {
+            populate([...localProducts, ...(Array.isArray(remoteProducts) ? remoteProducts : [])]);
+          })
+          .catch(() => {});
+      }
+    }
+
+    // Aggregate Ledger Data for Daily, Weekly, or Monthly Report
+    function fetchReportPreview() {
+      const reportType = document.getElementById('report-type').value;
+      const shiftFilter = document.getElementById('shift-filter').value;
+      const productFilter = document.getElementById('product-filter').value;
+      const targetDate = document.getElementById('target-date').value;
+      const startDate = document.getElementById('start-date').value;
+      const endDate = document.getElementById('end-date').value;
+      const matchPeriod = document.getElementById('roster-use-period').checked;
+
+      const queryParams = {
+        reportType,
+        shiftFilter,
+        productFilter,
+        targetDate,
+        startDate,
+        endDate,
+        matchPeriod
+      };
+
+      const applyReportPayload = (payload) => {
+        const rows = payload.rows || [];
+        const rosterPairs = payload.rosterPairs || [];
+        currentReportRows = rows;
+        currentRosterPairs = rosterPairs;
+
+        const shiftLabel = shiftFilter === 'ALL' ? 'All Shifts (DAY & NIGHT)' : `${shiftFilter} Shift`;
+        document.getElementById('roster-scope-label').textContent = matchPeriod
+          ? (reportType === 'daily' ? `Date: ${targetDate} | Shift: ${shiftLabel}` : `Period: ${startDate} to ${endDate} | Shift: ${shiftLabel}`)
+          : `All recorded dates in ledger | Shift: ${shiftLabel}`;
+
+        renderReportUI({
+          rows,
+          distinctDrivers: payload.distinctDrivers || 0,
+          distinctTrucks: payload.distinctTrucks || 0
+        }, reportType, shiftFilter, targetDate, startDate, endDate);
+
+        renderFleetRoster(rosterPairs);
+      };
+
+      const localResult = buildLocalReportData(queryParams);
+      applyReportPayload(localResult);
+
+      if (hasGoogleScriptRun()) {
+        google.script.run
+          .withSuccessHandler((remoteData) => {
+            if (remoteData && Array.isArray(remoteData.rows) && remoteData.rows.length > 0) {
+              applyReportPayload(remoteData);
+            }
+          })
+          .getReportData(queryParams);
+      } else if (APPS_SCRIPT_WEB_APP_URL) {
+        callBackendApi('getReportData', queryParams)
+          .then((remoteData) => {
+            if (remoteData && Array.isArray(remoteData.rows) && remoteData.rows.length > 0) {
+              applyReportPayload(remoteData);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
+    function buildLocalReportData({ reportType, shiftFilter, productFilter, targetDate, startDate, endDate, matchPeriod }) {
+      const filteredRecords = waybillLedger.filter(r => {
+        if (shiftFilter !== 'ALL' && (r.shift || 'DAY') !== shiftFilter) return false;
+        if (productFilter !== 'ALL' && r.productType !== productFilter) return false;
+        if (reportType === 'daily') {
+          return r.date === targetDate;
+        } else {
+          return r.date >= startDate && r.date <= endDate;
+        }
       });
 
-      if (uniqueProducts.includes(currentVal)) {
-        select.value = currentVal;
-      }
+      const rosterSourceRecords = matchPeriod
+        ? filteredRecords
+        : waybillLedger.filter(r => {
+            if (shiftFilter !== 'ALL' && (r.shift || 'DAY') !== shiftFilter) return false;
+            return productFilter === 'ALL' || r.productType === productFilter;
+          });
+
+      const summaryMap = {};
+      const distinctDrivers = new Set();
+      const distinctTrucks = new Set();
+
+      filteredRecords.forEach(r => {
+        distinctDrivers.add(r.driverName);
+        distinctTrucks.add(r.truckNumber);
+
+        if (!summaryMap[r.productType]) {
+          summaryMap[r.productType] = {
+            product: r.productType,
+            inbound: 0,
+            outbound: 0,
+            transfers: [],
+            fleet: new Set()
+          };
+        }
+
+        if (r.movementType === 'Inbound') {
+          summaryMap[r.productType].inbound += r.quantity;
+        } else {
+          summaryMap[r.productType].outbound += r.quantity;
+        }
+
+        summaryMap[r.productType].transfers.push(`${r.transferNumber} (${r.quantity})`);
+        summaryMap[r.productType].fleet.add(`${r.driverName} [${r.truckNumber}]`);
+      });
+
+      const rows = Object.values(summaryMap).map(item => ({
+        product: item.product,
+        inbound: item.inbound,
+        outbound: item.outbound,
+        net: item.inbound - item.outbound,
+        transfersStr: item.transfers.join(', '),
+        fleetStr: Array.from(item.fleet).join('; ')
+      }));
+
+      const pairMap = new Map();
+      rosterSourceRecords.forEach(r => {
+        const key = `${r.driverName.trim()}|||${r.truckNumber.trim()}`;
+        if (!pairMap.has(key)) {
+          pairMap.set(key, {
+            driverName: r.driverName.trim(),
+            truckNumber: r.truckNumber.trim()
+          });
+        }
+      });
+      const rosterPairs = Array.from(pairMap.values()).sort((a, b) =>
+        a.driverName.localeCompare(b.driverName) || a.truckNumber.localeCompare(b.truckNumber)
+      );
+
+      return {
+        rows,
+        rosterPairs,
+        distinctDrivers: distinctDrivers.size,
+        distinctTrucks: distinctTrucks.size
+      };
+    }
     }
 
     // Aggregate Ledger Data for Daily, Weekly, or Monthly Report
